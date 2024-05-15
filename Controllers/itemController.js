@@ -1,10 +1,7 @@
-const db = require('../Config/database')
+const db = require('../Config/database');
 
-
-
-// create
-
-const createItem = async (req, res) => {
+// Create Item
+exports.createItem = async (req, res) => {
     try {
         const { name, description, price } = req.body;
 
@@ -19,31 +16,25 @@ const createItem = async (req, res) => {
 
         return res.status(200).json({ result });
     } catch (error) {
-        console.log(error);
+        console.error(error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
 
-
-
-
-// read
-
-
-// Read items
-const readItems = async (req, res) => {
+// Read Items
+exports.readItems = async (req, res) => {
     try {
         const query = `SELECT * FROM items`;
         const [result, fields] = await db.query(query);
         return res.status(200).json({ result });
     } catch (error) {
-        console.log(error);
+        console.error(error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
 
-// Update item
-const updateItem = async (req, res) => {
+// Update Item
+exports.updateItem = async (req, res) => {
     try {
         const { newItemName, oldItemName, description, price } = req.body;
         
@@ -57,13 +48,13 @@ const updateItem = async (req, res) => {
         const [result, fields] = await db.query(query, [newItemName, description, price, oldItemName]);
         return res.status(200).json({ result });
     } catch (error) {
-        console.log(error);
+        console.error(error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
 
-// Delete item
-const deleteItem = async (req, res) => {
+// Delete Item
+exports.deleteItem = async (req, res) => {
     try {
         const { name } = req.body;
         
@@ -77,11 +68,7 @@ const deleteItem = async (req, res) => {
         const [result, fields] = await db.query(query, [name]);
         return res.status(200).json({ result });
     } catch (error) {
-        console.log(error);
+        console.error(error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
-
-
-
-module.exports = {createItem, readItems, updateItem, deleteItem}

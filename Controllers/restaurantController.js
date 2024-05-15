@@ -1,5 +1,4 @@
 const db = require('../Config/database');
-// const db = connection.promise();
 
 // CREATE Restaurant
 exports.createRestaurant = async (req, res) => {
@@ -37,7 +36,7 @@ exports.createRestaurant = async (req, res) => {
 exports.getAllRestaurants = async (req, res) => {
   try {
     const query = 'SELECT * FROM restaurant';
-    const { rows } = await db.query(query);
+    const [rows, fields] = await db.query(query);
     res.status(200).json({
       status: 'Success',
       data: rows,
@@ -56,13 +55,15 @@ exports.getRestaurantById = async (req, res) => {
   try {
     const { id } = req.params;
     const query = 'SELECT * FROM restaurant WHERE id = ?';
-    const { rows } = await db.query(query, [id]);
-    if (rows.length === 0) {
+    const [rows, fields] = await db.query(query, [id]);
+    
+    if (!rows || rows.length === 0) {
       return res.status(404).json({
         status: 'Error',
         message: `Restaurant with id '${id}' not found`,
       });
     }
+    
     res.status(200).json({
       status: 'Success',
       data: rows[0],
