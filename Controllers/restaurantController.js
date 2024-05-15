@@ -32,17 +32,36 @@ exports.createRestaurant = async (req, res) => {
   }
 };
 
+
 // READ All Restaurants
-exports.getAllRestaurants = async (req, res) => {
+// exports.getAllRestaurants = async (req, res) => {
+//   try {
+//     const query = 'SELECT * FROM restaurants';
+//     const [rows, fields] = await db.query(query);
+//     res.status(200).json({
+//       status: 'Success',
+//       data: rows,
+//     });
+//   } catch (error) {
+//     console.error('Error getting all restaurants:', error);
+//     res.status(500).json({
+//       status: 'Error',
+//       message: 'Internal server error',
+//     });
+//   }
+// };
+
+// READ All Approved Restaurants
+exports.getAllApprovedRestaurants = async (req, res) => {
   try {
-    const query = 'SELECT * FROM restaurant';
-    const [rows, fields] = await db.query(query);
+    const query = 'SELECT * FROM restaurants WHERE approved = ?';
+    const [rows, fields] = await db.query(query, [true]);
     res.status(200).json({
       status: 'Success',
       data: rows,
     });
   } catch (error) {
-    console.error('Error getting all restaurants:', error);
+    console.error('Error getting all approved restaurants:', error);
     res.status(500).json({
       status: 'Error',
       message: 'Internal server error',
@@ -54,7 +73,7 @@ exports.getAllRestaurants = async (req, res) => {
 exports.getRestaurantById = async (req, res) => {
   try {
     const { id } = req.params;
-    const query = 'SELECT * FROM restaurant WHERE id = ?';
+    const query = 'SELECT * FROM restaurants WHERE id = ?';
     const [rows, fields] = await db.query(query, [id]);
     
     if (!rows || rows.length === 0) {
@@ -81,9 +100,9 @@ exports.getRestaurantById = async (req, res) => {
 exports.updateRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, city, state, country, zipcode, phone } = req.body;
-    const query = 'UPDATE restaurant SET name = ?, address = ?, city = ?, state = ?, country = ?, zipcode = ?, phone = ?, updated_at = ? WHERE id = ?';
-    const values = [name, address, city, state, country, zipcode, phone, new Date(), id];
+    const { owner_name, owner_email, owner_phone_no, restaurant_name, pan_no, GSTIN_no, FSSAI_no, approved } = req.body;
+    const query = 'UPDATE restaurants SET owner_name = ?, owner_email = ?, owner_phone_no = ?, restaurant_name = ?, pan_no = ?, GSTIN_no = ?, FSSAI_no = ?, approved = ?, updated_at = ? WHERE id = ?';
+    const values = [owner_name, owner_email, owner_phone_no, restaurant_name, pan_no, GSTIN_no, FSSAI_no, approved, new Date(), id];
     const result = await db.query(query, values);
     if (result.affectedRows === 0) {
       return res.status(404).json({
@@ -108,7 +127,7 @@ exports.updateRestaurant = async (req, res) => {
 exports.deleteRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-    const query = 'DELETE FROM restaurant WHERE id = ?';
+    const query = 'DELETE FROM restaurants WHERE id = ?';
     const result = await db.query(query, [id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({
