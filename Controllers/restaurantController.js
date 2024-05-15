@@ -3,22 +3,33 @@ const db = require('../Config/database');
 // CREATE Restaurant
 exports.createRestaurant = async (req, res) => {
   try {
-    const { name, address, city, state, country, zipcode, phone } = req.body;
-    const query = 'INSERT INTO restaurant (name, address, city, state, country, zipcode, phone) VALUES (?, ?, ?, ?, ?, ?, ?)';
-    const values = [name, address, city, state, country, zipcode, phone];
+    const { owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no } = req.body;
+
+    // Check if any required field is missing
+    if (!owner_name || !owner_phone_no || !owner_email || !restaurant_name || !pan_no || !GSTIN_no || !FSSAI_no) {
+      return res.status(400).json({
+        status: 'Error',
+        message: 'All fields are required',
+      });
+    }
+
+    const query = 'INSERT INTO restaurants (owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no) VALUES (?, ?, ?, ?, ?, ?, ?)';
+    const values = [owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no];
     const result = await db.query(query, values);
+
     const newRestaurant = {
       id: result.insertId,
-      name,
-      address,
-      city,
-      state,
-      country,
-      zipcode,
-      phone,
+      owner_name,
+      owner_phone_no,
+      owner_email,
+      restaurant_name,
+      pan_no,
+      GSTIN_no,
+      FSSAI_no,
       created_at: new Date(),
       updated_at: new Date()
     };
+
     res.status(201).json({
       status: 'Success',
       data: newRestaurant,
@@ -32,10 +43,11 @@ exports.createRestaurant = async (req, res) => {
   }
 };
 
+
 // READ All Restaurants
 exports.getAllRestaurants = async (req, res) => {
   try {
-    const query = 'SELECT * FROM restaurant';
+    const query = 'SELECT * FROM restaurant ';
     const [rows, fields] = await db.query(query);
     res.status(200).json({
       status: 'Success',
@@ -81,9 +93,9 @@ exports.getRestaurantById = async (req, res) => {
 exports.updateRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, address, city, state, country, zipcode, phone } = req.body;
-    const query = 'UPDATE restaurant SET name = ?, address = ?, city = ?, state = ?, country = ?, zipcode = ?, phone = ?, updated_at = ? WHERE id = ?';
-    const values = [name, address, city, state, country, zipcode, phone, new Date(), id];
+    const { owner_name, owner_phone_no, owner_email, restaurant_name } = req.body;
+    const query = 'UPDATE restaurants SET owner_name = ?, owner_phone_no = ?, owner_email = ?, restaurant_name = ?, updated_at = ? WHERE id = ?';
+    const values = [ owner_name, owner_phone_no, owner_email, restaurant_name , new Date(), id];
     const result = await db.query(query, values);
     if (result.affectedRows === 0) {
       return res.status(404).json({
