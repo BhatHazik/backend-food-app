@@ -5,7 +5,6 @@ exports.getRestaurantsAdmin = async(req, res)=>{
     try{
     const qurey = `select * from restaurants where approved = ?`
     const [rows, feilds] = await db.query(qurey, [false]);
-
     res.status(200).json({
         status: 'Success',
         data: rows,
@@ -23,18 +22,22 @@ exports.getRestaurantsAdmin = async(req, res)=>{
 exports.approveRestaurants = async(req, res)=>{
     try{
         const {id} = req.params;
-        const query = `UPDATE restaurants SET approved = ?`
-        const result = await db.query(query, [true]);
+        const query = `UPDATE restaurants SET approved = ? where id = ?`
+        const result = await db.query(query, [true , id]);
     if (result.affectedRows === 0) {
       return res.status(404).json({
         status: 'Error',
         message: `Restaurant with id '${id}' not found`,
       });
     }
+    const qurey = `INSERT INTO menus (restaurant_id) VALUES (?)`
+    const value = [id]
+    const menu = await db.query(qurey, value);
     res.status(200).json({
       status: 'Success',
-      message: `Restaurant with id '${id}' Approved successfully`,
+      message: `Restaurant with id '${id}' Approved and its menu created successfully`,
     });
+
   } catch (error) {
     console.error('Error while Approving restaurants', error);
     res.status(500).json({

@@ -3,9 +3,9 @@ const itemController = require('../Controllers/itemController');
 
 const router = express.Router();
 
-router.post('/', itemController.createItem);
-router.get('/', itemController.readItems);
-router.patch('/:id', itemController.updateItem);
+router.post('/:id', itemController.createItem);
+// router.get('/', itemController.readItems);
+router.patch('/:id', itemController.updateItembyid);
 router.delete('/:id', itemController.deleteItem);
 
 module.exports = router;
