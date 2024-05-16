@@ -113,11 +113,9 @@ exports.getRestaurantById = async (req, res) => {
 exports.updateRestaurant = async (req, res) => {
   try {
     const { id } = req.params;
-
     const { owner_name, owner_phone_no, owner_email, restaurant_name } = req.body;
     const query = 'UPDATE restaurants SET owner_name = ?, owner_phone_no = ?, owner_email = ?, restaurant_name = ?, updated_at = ? WHERE id = ?';
     const values = [ owner_name, owner_phone_no, owner_email, restaurant_name , new Date(), id];
-
     const result = await db.query(query, values);
     if (result.affectedRows === 0) {
       return res.status(404).json({
