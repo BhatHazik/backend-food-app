@@ -30,12 +30,9 @@ exports.approveRestaurants = async(req, res)=>{
         message: `Restaurant with id '${id}' not found`,
       });
     }
-    const qurey = `INSERT INTO menus (restaurant_id) VALUES (?)`
-    const value = [id]
-    const menu = await db.query(qurey, value);
     res.status(200).json({
       status: 'Success',
-      message: `Restaurant with id '${id}' Approved and its menu created successfully`,
+      message: `Restaurant with id '${id}' Approved successfully`,
     });
 
   } catch (error) {
