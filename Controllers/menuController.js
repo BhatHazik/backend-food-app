@@ -1,102 +1,89 @@
 const db = require('../Config/database');
 
 // CREATE Menu Item
-// exports.createMenuItem = async (req, res) => {
-//   try {
-//     const { meal_type, cuisine_type, description, restaurant_id } = req.body;
-//     const query = 'INSERT INTO menu (meal_type, cuisine_type, description, restaurant_id) VALUES (?, ?, ?, ?)';
-//     const values = [meal_type, cuisine_type, description, restaurant_id];
-//     const result = await db.query(query, values);
-//     const newMenuItem = {
-//       id: result.insertId,
-//       meal_type,
-//       cuisine_type,
-//       description,
-//       restaurant_id,
-//       created_at: new Date().toLocaleString(),
-//       updated_at: new Date().toLocaleString()
-//     };
-//     res.status(201).json({
-//       status: 'Success',
-//       data: newMenuItem,
-//       message: 'Menu item created successfully',
-//     });
-//   } catch (error) {
-//     console.error('Error creating menu item:', error);
-//     res.status(500).json({
-//       status: 'Error',
-//       message: 'Internal server error',
-//     });
-//   }
-// };
+exports.createMenu = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+    
+    // Insert menu item into the 'menus' table
+    const insertQuery = 'INSERT INTO menus (name, restaurant_id) VALUES (?, ?)';
+    const insertValues = [name, id];
+    const result = await db.query(insertQuery, insertValues);
+    
+    // Check if the restaurant with the specified id is approved
+    const checkQuery = `SELECT *
+                        FROM restaurants
+                        WHERE id = ?
+                        AND approved = true`;
+    const [rows] = await db.query(checkQuery, [id]);
+    
+    if (rows.length > 0) {
+      res.status(201).json({
+        status: 'Success',
+        data: result,
+        message: 'Menu item created successfully',
+      });
+    } else {
+      res.status(403).json({
+        status: 'Error',
+        message: `Restaurant with id '${id}' is not approved or does not exist`,
+      });
+    }
+  } catch (error) {
+    console.error('Error creating menu item:', error);
+    res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
 
-// READ All Menu Items
-// exports.getAllMenuItems = async (req, res) => {
-//   try {
-//     const query = 'SELECT * FROM menu';
-//     const [rows, fields] = await db.query(query);
-//     // Format dates in each menu item
-//     const menuItems = rows.map(item => ({
-//       ...item,
-//       created_at: new Date(item.created_at).toLocaleString(),
-//       updated_at: new Date(item.updated_at).toLocaleString()
-//     }));
-//     res.status(200).json({
-//       status: 'Success',
-//       data: menuItems,
-//     });
-//   } catch (error) {
-//     console.error('Error getting all menu items:', error);
-//     res.status(500).json({
-//       status: 'Error',
-//       message: 'Internal server error',
-//     });
-//   }
-// };
+
+// READ All Menus by restaurant id
+exports.getAllMenus = async (req, res) => {
+  try {
+    const {id} = req.params;
+    const query = 'SELECT * FROM menus WHERE restaurant_id = ?';
+    const [rows, fields] = await db.query(query, [id]);
+    // Format dates in each menu item
+    const menuItems = rows.map(item => ({
+      ...item,
+
+    }));
+    res.status(200).json({
+      status: 'Success',
+      data: menuItems,
+    });
+  } catch (error) {
+    console.error('Error getting all menu items:', error);
+    res.status(500).json({
+      status: 'Error',
+      message: 'Internal server error',
+    });
+  }
+};
 
 // READ Menu Item by ID
 exports.getMenuById = async (req, res) => {
   try {
     const { id } = req.params;
-    const menuQuery = 'SELECT * FROM menus WHERE restaurant_id = ?';
+    const menuQuery = 'SELECT * FROM menus WHERE id = ?';
     const [menuRows] = await db.query(menuQuery, [id]);
-  
+    
     if (!menuRows || menuRows.length === 0) {
       return res.status(404).json({
         status: 'Error',
-        message: `Menus not found for restaurant with id '${id}'`,
+        message: `Menus not found with id '${id}'`,
       });
     }
-  
-    const menuId = menuRows[0].id; // Accessing id property of the first menu object
-  
-    const itemsQuery = 'SELECT * FROM items WHERE menu_id = ?';
-    const [itemRows] = await db.query(itemsQuery, [menuId]);
-  
-    // Process the data to convert buffer data to readable format
-    const items = itemRows.map(row => {
-      return {
-        id: row.id,
-        name: row.name.toString(),
-        price: parseFloat(row.price),
-        description: row.description.toString(),
-        menu_id: row.menu_id
-      };
-    });
-  
-    // Construct the response object
-    const menu = {
-      id: menuId, // Use the menuId obtained from menuRows
-      // Add other menu properties as needed
-      items: items
-    };
-  
     res.status(200).json({
       status: 'Success',
-      menu
+      menuRows
     });
+
   } catch (error) {
-    console.error('Error getting menu by restaurant ID:', error);
+    console.error('Error getting menu', error);
     res.status(500).json({
       status: 'Error',
       message: 'Internal server error',
