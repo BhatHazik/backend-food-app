@@ -45,19 +45,31 @@ exports.createRestaurant = async (req, res) => {
 // READ All Approved Restaurants
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
   try {
-    const query = 'SELECT * FROM restaurants WHERE approved = ?';
-    const [rows, fields] = await db.query(query, [true]);
+    const { latitude, longitude } = req.body;
+    const radius = 5; // Radius in kilometers
+
+    // Haversine formula to calculate distance
+    const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantAddress.latitude)) * cos(radians(restaurantAddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantAddress.latitude))))`;
+
+    // Query to get restaurants within the radius of the user's location
+    const query = `
+      SELECT restaurants.*, restaurantAddress.latitude AS restaurant_latitude, restaurantAddress.longitude AS restaurant_longitude, ${haversine} AS distance
+      FROM restaurants
+      INNER JOIN restaurantAddress ON restaurants.id = restaurantAddress.restaurant_id
+      WHERE restaurants.approved = true AND ${haversine} <= ?
+    `;
+
+    const [rows, fields] = await db.query(query, [radius]);
 
     res.status(200).json({
       status: 'Success',
       data: rows,
     });
   } catch (error) {
-    console.error('Error getting all approved restaurants:', error);
-    throw new AppError(500, 'Internal server error');
+    console.error('Error fetching restaurants near user:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 });
-
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res) => {
   try {
@@ -78,7 +90,7 @@ exports.getRestaurantById = asyncChoke(async (req, res) => {
     throw new AppError(error.statusCode || 500, error.message || 'Internal server error');
   }
 });
-
+                
 // UPDATE Restaurant
 exports.updateRestaurant = asyncChoke(async (req, res) => {
   try {

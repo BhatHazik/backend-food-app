@@ -1,6 +1,7 @@
 const db = require('../Config/database');
 
 
+
 exports.getRestaurantsAdmin = async(req, res)=>{
     try{
     const qurey = `select * from restaurants where approved = ?`
@@ -15,8 +16,9 @@ exports.getRestaurantsAdmin = async(req, res)=>{
           status: 'Error',
           message: 'Internal server error',
         });
-      }   
+      }
 }
+
 
 
 exports.approveRestaurants = async(req, res)=>{
