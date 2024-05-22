@@ -6,7 +6,8 @@ const path = require("path");
 const bodyParser = require('body-parser');
 const itemsRouter = require('./Routes/itemsRouter');
 const adminRouter = require('./Routes/adminRouter');
-const categoryRouter = require('./Routes/categoryRouter')
+const categoryRouter = require('./Routes/categoryRouter');
+const offerRouter = require('./Routes/offerRouter');
 const app = express();
 
 app.use(bodyParser.json());
@@ -21,6 +22,7 @@ app.use('/api/user', userRoute);
 app.use('/api/items', itemsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/category', categoryRouter);
+app.use('/api/offers', offerRouter)
 // Error handling middleware
 // app.use(errorHandler);
 
