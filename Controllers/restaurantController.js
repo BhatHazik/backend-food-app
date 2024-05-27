@@ -62,7 +62,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
     const [rows, fields] = await db.query(query, [radius]);
 
     res.status(200).json({
-      status: 'Success',
+      status: 'hgjhgkhSuccess',
       data: rows,
     });
   } catch (error) {

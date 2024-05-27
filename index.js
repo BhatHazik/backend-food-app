@@ -8,7 +8,12 @@ const itemsRouter = require('./Routes/itemsRouter');
 const adminRouter = require('./Routes/adminRouter');
 const categoryRouter = require('./Routes/categoryRouter');
 const offerRouter = require('./Routes/offerRouter');
-const deliveryBoyRouter = require('./Routes/deiveryBoyRouter')
+const deliveryBoyRouter = require('./Routes/deiveryBoyRouter');
+const cartRouter = require('./Routes/cartRouter');
+const dotenv = require('dotenv');
+
+
+dotenv.config({path: "./.env"})
 const app = express();
 
 app.use(bodyParser.json());
@@ -24,7 +29,8 @@ app.use('/api/items', itemsRouter);
 app.use('/api/admin', adminRouter);
 app.use('/api/category', categoryRouter);
 app.use('/api/offers', offerRouter);
-app.use('/api/deliveryBoy', deliveryBoyRouter)
+app.use('/api/deliveryBoy', deliveryBoyRouter);
+app.use('/api/cart', cartRouter);
 // Error handling middleware
 // app.use(errorHandler);
 

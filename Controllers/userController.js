@@ -1,5 +1,5 @@
 const db = require('../Config/database');
-
+const jwt = require('jsonwebtoken')
 
 // create or signup with otp
 
@@ -147,6 +147,7 @@ const deleteUser = async (req, res) => {
 };
 
 
+
 // OTPSENDER
 const userOTPsender = async (req, res) => {
     try {
@@ -165,14 +166,23 @@ const userOTPsender = async (req, res) => {
         // Update OTP in the database for the provided phone number
         const query = `UPDATE otps SET otp = ? WHERE phone_no = ?`;
         const [result, fields] = await db.query(query, [otp, phone_no]);
-
-        return res.status(200).json({ message: 'OTP sent successfully', result });
+        return res.status(200).json({ message: 'OTP sent successfully', result, otp });
     } catch (error) {
         console.log(error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
 
+
+const createSendToken = (res, req, phone_no) => {
+    const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
+    const token = jwt.sign(
+      { data: phone_no },
+      process.env.JWT_SECRET,
+      tokenOptions
+    );
+    return token;
+}
 
 // OTP CHECKER (LOGIN)
 const userLogin = async (req, res) => {
@@ -186,16 +196,20 @@ const userLogin = async (req, res) => {
         }
 
         // Check if the provided OTP matches the OTP stored for the phone number
-        const query = `
+        const otpQuery = `
             SELECT COUNT(*) AS otp_matched
             FROM otps
             WHERE phone_no = ?
               AND otp = ?
         `;
-        const [result, fields] = await db.query(query, [phone_no, givenOTP]);
+        const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
 
-        if (result[0].otp_matched === 1) {
-            return res.status(200).json({ message: 'Login success', result });
+        if (otpResult[0].otp_matched === 1) {
+
+            const token = createSendToken(res, req, phone_no);
+            
+
+            return res.status(200).json({ message: 'Login success', token });
         } else {
             return res.status(401).json({ message: 'Invalid OTP' });
         }
@@ -204,6 +218,7 @@ const userLogin = async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
+
 
 
 module.exports = {createUserOTP,userSignUp,readUsers,updateUser,deleteUser,userOTPsender,userLogin}
