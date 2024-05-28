@@ -49,13 +49,13 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
     const radius = 5; // Radius in kilometers
 
     // Haversine formula to calculate distance
-    const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantAddress.latitude)) * cos(radians(restaurantAddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantAddress.latitude))))`;
+    const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
 
     // Query to get restaurants within the radius of the user's location
     const query = `
-      SELECT restaurants.*, restaurantAddress.latitude AS restaurant_latitude, restaurantAddress.longitude AS restaurant_longitude, ${haversine} AS distance
+      SELECT restaurants.*, restaurantaddress.latitude AS restaurant_latitude, restaurantaddress.longitude AS restaurant_longitude, ${haversine} AS distance
       FROM restaurants
-      INNER JOIN restaurantAddress ON restaurants.id = restaurantAddress.restaurant_id
+      INNER JOIN restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
       WHERE restaurants.approved = true AND ${haversine} <= ?
     `;
 

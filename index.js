@@ -13,7 +13,20 @@ const categoryRouter = require('./Routes/categoryRouter');
 const offerRouter = require('./Routes/offerRouter');
 const deliveryBoyRouter = require('./Routes/deiveryBoyRouter');
 const cartRouter = require('./Routes/cartRouter');
+const cors = require('cors');
 const app = express();
+
+const allowedOrigins = [
+  "http://localhost:5173",    // React web application
+  "http://localhost:8081"     // React Native application (adjust as needed)
+];
+
+app.use(cors({
+  origin: allowedOrigins,
+  credentials: true
+}));
+
+app.options("*", cors());
 
 app.use(bodyParser.json());
 

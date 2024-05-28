@@ -30,7 +30,7 @@ const createUserOTP = async (req, res) => {
             const insertQuery = `INSERT INTO otps (phone_no, otp) VALUES (?, ?);`;
             const [insertResult, insertFields] = await db.query(insertQuery, [phone_no, otp]);
             
-            return res.status(200).json({ result: insertResult, phone_no });
+            return res.status(200).json({ phoneNO : phone_no, otp });
         }
     } catch (error) {
         console.log(error);
@@ -157,7 +157,6 @@ const userOTPsender = async (req, res) => {
 
         const otp = generateOTP();
         const { phone_no } = req.body;
-
         // Check if phone_no is provided
         if (!phone_no) {
             return res.status(400).json({ error: "Fill all fields" });
