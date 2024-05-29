@@ -4,80 +4,82 @@ const jwt = require('jsonwebtoken')
 // create or signup with otp
 
 
+const createSendToken = (res, req, phone_no) => {
+    const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
+    const token = jwt.sign(
+      { data: phone_no },
+      process.env.JWT_SECRET,
+      tokenOptions
+    );
+    return token;
+}
+
 // create otp on number
+// createUserOTP API
 const createUserOTP = async (req, res) => {
-    const generateOTP = () => {
-        return Math.floor(1000 + Math.random() * 9000);
-    }
-
+    const generateOTP = () => Math.floor(1000 + Math.random() * 9000);
     const otp = generateOTP();
-    const { phone_no } = req.body;
+    const { username, email, phone_no } = req.body;
 
-    if (!phone_no) {
-        return res.status(400).json({ error: "Fill all fields" });
-    }
+    
 
     try {
-        // Check if the phone number already exists in the database
-        const checkQuery = `SELECT * FROM user WHERE phone_no = ?;`;
-        const [checkResult, checkFields] = await db.query(checkQuery, [phone_no]);
+        if( username !== "" && email !== "" && phone_no !== ""){
+            const checkQuery = `SELECT * FROM users WHERE phone_no = ? OR email = ?;`;
+        const [checkResult] = await db.query(checkQuery, [phone_no, email]);
 
         if (checkResult.length > 0) {
-            // Phone number already exists
-            return res.status(400).json({ error: 'Phone number already exists' });
+            return res.status(400).json({ message: 'Phone number or email already exists' });
         } else {
-            // Phone number does not exist, proceed with inserting OTP
             const insertQuery = `INSERT INTO otps (phone_no, otp) VALUES (?, ?);`;
-            const [insertResult, insertFields] = await db.query(insertQuery, [phone_no, otp]);
-            
-            return res.status(200).json({ phoneNO : phone_no, otp });
+            await db.query(insertQuery, [phone_no, otp]);
+
+            return res.status(200).json({ username, email , phone_no, otp });
         }
+        }else{
+            res.json({message : "fill all feilds"})
+        }
+        
     } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Internal server error' });
+        console.error(error);
+        return res.status(500).json({ message: 'Internal server error' });
     }
 };
 
 
-// check otp and make entry in user
+
+// userSignUp API
 const userSignUp = async (req, res) => {
-    try {
         const { givenOTP } = req.body;
-        const phone_no = req.params.phNO;
+        const { name , email, phNO: phone_no } = req.params;
 
-        // Check if both givenOTP and phone_no are provided
-        if (!givenOTP || !phone_no) {
-            return res.status(400).json({ error: "Fill all fields" });
-        }
-
-        // Check if the phone number already exists in the user table
-        const checkUserQuery = `SELECT COUNT(*) AS phone_exist FROM user WHERE phone_no = ?`;
-        const [userResult, userFields] = await db.query(checkUserQuery, [phone_no]);
+        try {
+        if (givenOTP !== "" && phone_no !== "" && email !== "" && name !== "") {
+            const checkUserQuery = `SELECT COUNT(*) AS phone_exist FROM users WHERE phone_no = ?`;
+        const [userResult] = await db.query(checkUserQuery, [phone_no]);
 
         if (userResult[0].phone_exist > 0) {
-            return res.json({ message: "User already exists" });
+            return res.status(400).json({ message: "User already exists" });
         }
 
-        // Check if the provided OTP matches the OTP stored for the phone number
-        const checkOTPQuery = `
-            SELECT COUNT(*) AS otp_matched
-            FROM otps
-            WHERE phone_no = ?
-            AND otp = ?
-        `;
-        const [otpResult, otpFields] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
+        const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
+        const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
 
         if (otpResult[0].otp_matched === 0) {
             return res.status(401).json({ message: 'Invalid OTP' });
         }
+        const token = createSendToken(res, req, phone_no);
+        const insertUserQuery = `INSERT INTO users (username, email, phone_no) VALUES (?, ?, ?)`;
+        await db.query(insertUserQuery, [name, email, phone_no]);
 
-        // Insert the user into the user table
-        const insertUserQuery = `INSERT INTO user (phone_no) VALUES (?)`;
-        await db.query(insertUserQuery, [phone_no]);
-
-        return res.status(200).json({ message: "Account created" });
+        return res.status(200).json({ message: "Account created" , token});
+        }
+        else{
+            return res.json({message :"fill all feilds"})
+        }
+        
     } catch (error) {
-        console.log(error);
+        console.error(error);
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
@@ -161,11 +163,17 @@ const userOTPsender = async (req, res) => {
         if (!phone_no) {
             return res.status(400).json({ error: "Fill all fields" });
         }
-
-        // Update OTP in the database for the provided phone number
+        
+        const [checkQuery] = await db.query(`SELECT * FROM users WHERE phone_no = ?`, [phone_no]);
+        
+        if(checkQuery.length === 1){
+            // Update OTP in the database for the provided phone number
         const query = `UPDATE otps SET otp = ? WHERE phone_no = ?`;
         const [result, fields] = await db.query(query, [otp, phone_no]);
-        return res.status(200).json({ message: 'OTP sent successfully', result, otp });
+        return res.status(200).json({ message: 'OTP sent successfully', otp });
+        }
+        return res.json({message:"user not found! signUP first"})
+        
     } catch (error) {
         console.log(error);
         return res.status(500).json({ error: 'Internal server error' });
@@ -173,15 +181,7 @@ const userOTPsender = async (req, res) => {
 };
 
 
-const createSendToken = (res, req, phone_no) => {
-    const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
-    const token = jwt.sign(
-      { data: phone_no },
-      process.env.JWT_SECRET,
-      tokenOptions
-    );
-    return token;
-}
+
 
 // OTP CHECKER (LOGIN)
 const userLogin = async (req, res) => {
@@ -192,6 +192,9 @@ const userLogin = async (req, res) => {
         // Check if givenOTP is provided
         if (!givenOTP) {
             return res.status(400).json({ message: 'OTP cannot be empty' });
+        }
+        if(!phone_no){
+            return res.status(400).json({message:"phone_no can't be empty"})
         }
 
         // Check if the provided OTP matches the OTP stored for the phone number
