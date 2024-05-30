@@ -1,5 +1,7 @@
 const db = require('../Config/database');
-const jwt = require('jsonwebtoken')
+const jwt = require('jsonwebtoken');
+const { asyncChoke } = require('../Utils/asyncWrapper');
+const AppError = require('../Utils/error');
 
 // create or signup with otp
 
@@ -185,21 +187,22 @@ const userOTPsender = async (req, res) => {
 
 
 // OTP CHECKER (LOGIN)
-const userLogin = async (req, res) => {
-    try {
+const userLogin = asyncChoke( async (req, res,next) => {
+    
         const { givenOTP } = req.body;
         const phone_no = req.params.phNO;
+        
 
         // Check if givenOTP is provided
         if (!givenOTP) {
-            return res.status(400).json({ message: 'OTP cannot be empty' });
+            return next(new AppError(400, "Provide an otp"));
         }
         if(!phone_no){
-            return res.status(400).json({message:"phone_no can't be empty"})
+            return next(new AppError(400, "Provide an Phone_no"));
         }
         const [checkQuery] = await db.query(`SELECT * FROM users WHERE phone_no = ?`, phone_no)
         if(checkQuery.length < 1){
-            return res.json({message :"user does not exist "});
+            return next(new AppError(400, "user does not exist"));
         }
         // Check if the provided OTP matches the OTP stored for the phone number
         const otpQuery = `
@@ -217,13 +220,10 @@ const userLogin = async (req, res) => {
 
             return res.status(200).json({ message: 'Login success', token });
         } else {
-            return res.status(401).json({ message: 'Invalid OTP' });
+            return next(new AppError(401, "Invalid OTP"));
         }
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Internal server error' });
-    }
-};
+    
+});
 
 
 

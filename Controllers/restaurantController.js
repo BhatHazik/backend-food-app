@@ -93,7 +93,7 @@ exports.getRestaurantById = asyncChoke(async (req, res) => {
                 
 // UPDATE Restaurant
 exports.updateRestaurant = asyncChoke(async (req, res) => {
-  try {
+  
     const { id } = req.params;
     const { owner_name, owner_phone_no, owner_email, restaurant_name } = req.body;
     const query = 'UPDATE restaurants SET owner_name = ?, owner_phone_no = ?, owner_email = ?, restaurant_name = ?, updated_at = ? WHERE id = ?';
@@ -106,10 +106,9 @@ exports.updateRestaurant = asyncChoke(async (req, res) => {
       status: 'Success',
       message: `Restaurant with id '${id}' updated successfully`,
     });
-  } catch (error) {
-    console.error('Error updating restaurant:', error);
-    throw new AppError(error.statusCode || 500, error.message || 'Internal server error');
-  }
+  
+    if(1)
+    return next( new AppError(400,'Internal server error'));
 });
 
 // DELETE Restaurant

@@ -14,6 +14,7 @@ const offerRouter = require('./Routes/offerRouter');
 const deliveryBoyRouter = require('./Routes/deiveryBoyRouter');
 const cartRouter = require('./Routes/cartRouter');
 const cors = require('cors');
+const { sendErrorRes } = require('./Controllers/errorController');
 const app = express();
 
 const allowedOrigins = [
@@ -43,8 +44,9 @@ app.use('/api/category', categoryRouter);
 app.use('/api/offers', offerRouter);
 app.use('/api/deliveryBoy', deliveryBoyRouter);
 app.use('/api/cart', cartRouter);
+
 // Error handling middleware
-// app.use(errorHandler);
+app.use(sendErrorRes);
 
 // console.log(process.env)
 // Start the server
