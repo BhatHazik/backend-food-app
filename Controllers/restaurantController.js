@@ -1,7 +1,7 @@
 const db = require('../Config/database');
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
-
+const jwt = require('jsonwebtoken')
 // CREATE Restaurant
 exports.createRestaurant = async (req, res) => {
   try {
@@ -130,3 +130,106 @@ exports.deleteRestaurant = asyncChoke(async (req, res) => {
     throw new AppError(error.statusCode || 500, error.message || 'Internal server error');
   }
 });
+
+
+
+
+
+const createSendToken = (res, req, phone_no) => {
+  const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
+  const token = jwt.sign(
+    { data: phone_no },
+    process.env.JWT_SECRET,
+    tokenOptions
+  );
+  return token;
+}
+
+// create otp on number
+// createSellerOTP API
+exports.sellerOTPsender = async (req, res) => {
+  try {
+      const generateOTP = () => {
+          return Math.floor(1000 + Math.random() * 9000);
+      };
+
+      const otp = generateOTP();
+      const { phone_no } = req.body;
+      // Check if phone_no is provided
+      if (!phone_no) {
+          return res.status(400).json({ error: "Fill all fields" });
+      }
+      
+      const [checkQuery] = await db.query(`SELECT * FROM otps WHERE phone_no = ?`, [phone_no]);
+      
+      if(checkQuery.length === 1){
+          // Update OTP in the database for the provided phone number
+      const query = `UPDATE otps SET otp = ? WHERE phone_no = ?`;
+      const [result, fields] = await db.query(query, [otp, phone_no]);
+      return res.status(200).json({ message: 'OTP sent successfully', otp });
+      }
+      const [insertQuery] = await db.query(`INSERT INTO otps (phone_no, otp) VALUES (?,?)`,[phone_no,otp])
+      return res.status(200).json({ message: 'OTP sent successfully', otp });
+  } catch (error) {
+      console.log(error);
+      return res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+
+
+exports.sellerLogin = async (req, res) => {
+  try {
+      const { givenOTP } = req.body;
+      const phone_no = req.params.phNO;
+
+      // Check if givenOTP is provided
+      if (!givenOTP) {
+          return res.status(400).json({ message: 'OTP cannot be empty' });
+      }
+      if(!phone_no){
+          return res.status(400).json({message:"phone_no can't be empty"})
+      }
+      const [checkQuery] = await db.query(`SELECT * FROM restaurants WHERE owner_phone_no = ?`, [phone_no])
+      if(checkQuery.length > 1){
+        // Check if the provided OTP matches the OTP stored for the phone number
+      const otpQuery = `
+      SELECT COUNT(*) AS otp_matched
+      FROM otps
+      WHERE phone_no = ?
+        AND otp = ?
+  `;
+  const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
+
+  if (otpResult[0].otp_matched === 1) {
+
+      const [sellerSignUp] = await db.query(`INSERT INTO restaurants (owner_phone_no) VALUES(?)`, [phone_no]);
+      
+      const token = createSendToken(res, req, phone_no);
+      return res.status(200).json({ message: 'Login success', token });
+  } else {
+      return res.status(401).json({ message: 'Invalid OTP' });
+  }
+      }
+      else{
+        const otpQuery = `
+      SELECT COUNT(*) AS otp_matched
+      FROM otps
+      WHERE phone_no = ?
+        AND otp = ?
+  `;
+  const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
+
+  if (otpResult[0].otp_matched === 1) {
+      const token = createSendToken(res, req, phone_no);
+      return res.status(200).json({ message: 'Login success', token });
+  } else {
+      return res.status(401).json({ message: 'Invalid OTP' });
+  }
+      }
+      
+  } catch (error) {
+      console.log(error);
+      return res.status(500).json({ error: 'Internal server error' });
+  }
+};

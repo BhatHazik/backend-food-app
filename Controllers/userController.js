@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken')
 // create or signup with otp
 
 
+
 const createSendToken = (res, req, phone_no) => {
     const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
     const token = jwt.sign(
@@ -196,7 +197,10 @@ const userLogin = async (req, res) => {
         if(!phone_no){
             return res.status(400).json({message:"phone_no can't be empty"})
         }
-
+        const [checkQuery] = await db.query(`SELECT * FROM users WHERE phone_no = ?`, phone_no)
+        if(checkQuery.length < 1){
+            return res.json({message :"user does not exist "});
+        }
         // Check if the provided OTP matches the OTP stored for the phone number
         const otpQuery = `
             SELECT COUNT(*) AS otp_matched

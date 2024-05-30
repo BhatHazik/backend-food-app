@@ -9,5 +9,7 @@ router.post('/', restaurantController.createRestaurant);
 router.get('/getId/:id', restaurantController.getRestaurantById);
 router.patch('/:id', restaurantController.updateRestaurant);
 router.delete('/:id', restaurantController.deleteRestaurant);
+router.post('/sellerSendOtp', restaurantController.sellerOTPsender);
+router.post('/sellerLogin/:phNO', restaurantController.sellerLogin);
 
 module.exports = router;
