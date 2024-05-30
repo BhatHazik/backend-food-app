@@ -23,16 +23,14 @@ const createUserOTP = async (req, res) => {
     const generateOTP = () => Math.floor(1000 + Math.random() * 9000);
     const otp = generateOTP();
     const { username, email, phone_no } = req.body;
-
-    
-
-    try {
+   
         if( username !== "" && email !== "" && phone_no !== ""){
             const checkQuery = `SELECT * FROM users WHERE phone_no = ? OR email = ?;`;
         const [checkResult] = await db.query(checkQuery, [phone_no, email]);
 
         if (checkResult.length > 0) {
-            return res.status(400).json({ message: 'Phone number or email already exists' });
+            return next(new AppError(400, 'Phone number or email already exists'));
+            
         } else {
             const insertQuery = `INSERT INTO otps (phone_no, otp) VALUES (?, ?);`;
             await db.query(insertQuery, [phone_no, otp]);
@@ -40,13 +38,11 @@ const createUserOTP = async (req, res) => {
             return res.status(200).json({ username, email , phone_no, otp });
         }
         }else{
-            res.json({message : "fill all feilds"})
+            
+            return next(new AppError(400, "fill all feilds"))
+            
         }
         
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ message: 'Internal server error' });
-    }
 };
 
 
@@ -56,20 +52,20 @@ const userSignUp = async (req, res) => {
         const { givenOTP } = req.body;
         const { name , email, phNO: phone_no } = req.params;
 
-        try {
+       
         if (givenOTP !== "" && phone_no !== "" && email !== "" && name !== "") {
             const checkUserQuery = `SELECT COUNT(*) AS phone_exist FROM users WHERE phone_no = ?`;
         const [userResult] = await db.query(checkUserQuery, [phone_no]);
 
         if (userResult[0].phone_exist > 0) {
-            return res.status(400).json({ message: "User already exists" });
+            return next(new AppError(409, 'user already exists'));
         }
 
         const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
         const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
 
         if (otpResult[0].otp_matched === 0) {
-            return res.status(401).json({ message: 'Invalid OTP' });
+            return next(new AppError(401,'Invalid OTP' ))
         }
         const token = createSendToken(res, req, phone_no);
         const insertUserQuery = `INSERT INTO users (username, email, phone_no) VALUES (?, ?, ?)`;
@@ -78,13 +74,9 @@ const userSignUp = async (req, res) => {
         return res.status(200).json({ message: "Account created" , token});
         }
         else{
-            return res.json({message :"fill all feilds"})
+            return next(new AppError(400 , 'Fill all fields'));
         }
         
-    } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: 'Internal server error' });
-    }
 };
 
 
@@ -94,37 +86,31 @@ const userSignUp = async (req, res) => {
 
 
 const readUsers = async (req, res) => {
-    try {
+    
         const query = `SELECT * FROM user`;
         const [result, fields] = await db.query(query);
         res.status(200).json({ result });
-    } catch (err) {
-        console.log(err);
-        res.status(500).json({ error: 'Error while fetching users' });
-    }
+    
 };
 
 // update
 
 
 const updateUser = async (req, res) => {
-    try {
+   
         const { newUsername, oldUsername, phone_no } = req.body;
 
         // Check if all required fields are provided
         if (!newUsername || !oldUsername || !phone_no) {
-            return res.status(400).json({ error: "Fill all fields" });
-        }
+            return next(new AppError(400, 'Fill all fields'));
+         }
 
         // Proceed with the update if all fields are provided
-        const query = `UPDATE user SET username = ?, phone_no = ? WHERE username = ? AND phone_no = ?`;
+        const query = `UPDATE users SET username = ?, phone_no = ? WHERE username = ? AND phone_no = ?`;
         const [result, fields] = await db.query(query, [newUsername, phone_no, oldUsername, phone_no]);
         
         return res.status(200).json({ result });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Internal server error' });
-    }
+    
 };
 
 
@@ -132,12 +118,12 @@ const updateUser = async (req, res) => {
 
 
 const deleteUser = async (req, res) => {
-    try {
+  
         const { username } = req.body;
 
         // Check if username is provided
         if (!username) {
-            return res.status(400).json({ error: "Fill all fields" });
+            return next(new AppError(400, 'Fill all fields'));
         }
 
         // Proceed with deletion if username is provided
@@ -145,17 +131,14 @@ const deleteUser = async (req, res) => {
         const [result, fields] = await db.query(query, [username]);
 
         return res.status(200).json({ result });
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Internal server error' });
-    }
+    
 };
 
 
 
 // OTPSENDER
 const userOTPsender = async (req, res) => {
-    try {
+   
         const generateOTP = () => {
             return Math.floor(1000 + Math.random() * 9000);
         };
@@ -164,7 +147,7 @@ const userOTPsender = async (req, res) => {
         const { phone_no } = req.body;
         // Check if phone_no is provided
         if (!phone_no) {
-            return res.status(400).json({ error: "Fill all fields" });
+            return next(new AppError(400, 'Fill all fields'));
         }
         
         const [checkQuery] = await db.query(`SELECT * FROM users WHERE phone_no = ?`, [phone_no]);
@@ -175,12 +158,9 @@ const userOTPsender = async (req, res) => {
         const [result, fields] = await db.query(query, [otp, phone_no]);
         return res.status(200).json({ message: 'OTP sent successfully', otp });
         }
-        return res.json({message:"user not found! signUP first"})
+        return next(new AppError(404, 'User not found'));
         
-    } catch (error) {
-        console.log(error);
-        return res.status(500).json({ error: 'Internal server error' });
-    }
+   
 };
 
 
