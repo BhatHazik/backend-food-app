@@ -19,7 +19,7 @@ const createSendToken = (res, req, phone_no) => {
 
 // create otp on number
 // createUserOTP API
-const createUserOTP = async (req, res) => {
+const createUserOTP = asyncChoke(async (req, res, next) => {
     const generateOTP = () => Math.floor(1000 + Math.random() * 9000);
     const otp = generateOTP();
     const { username, email, phone_no } = req.body;
@@ -43,12 +43,12 @@ const createUserOTP = async (req, res) => {
             
         }
         
-};
+});
 
 
 
 // userSignUp API
-const userSignUp = async (req, res) => {
+const userSignUp = asyncChoke(async (req, res, next) => {
         const { givenOTP } = req.body;
         const { name , email, phNO: phone_no } = req.params;
 
@@ -77,7 +77,7 @@ const userSignUp = async (req, res) => {
             return next(new AppError(400 , 'Fill all fields'));
         }
         
-};
+});
 
 
 
@@ -96,7 +96,7 @@ const readUsers = async (req, res) => {
 // update
 
 
-const updateUser = async (req, res) => {
+const updateUser = asyncChoke(async (req, res, next) => {
    
         const { newUsername, oldUsername, phone_no } = req.body;
 
@@ -111,13 +111,13 @@ const updateUser = async (req, res) => {
         
         return res.status(200).json({ result });
     
-};
+});
 
 
 // delete
 
 
-const deleteUser = async (req, res) => {
+const deleteUser = asyncChoke(async (req, res, next) => {
   
         const { username } = req.body;
 
@@ -132,12 +132,12 @@ const deleteUser = async (req, res) => {
 
         return res.status(200).json({ result });
     
-};
+});
 
 
 
 // OTPSENDER
-const userOTPsender = async (req, res) => {
+const userOTPsender = asyncChoke(async (req, res, next) => {
    
         const generateOTP = () => {
             return Math.floor(1000 + Math.random() * 9000);
@@ -161,13 +161,13 @@ const userOTPsender = async (req, res) => {
         return next(new AppError(404, 'User not found'));
         
    
-};
+});
 
 
 
 
 // OTP CHECKER (LOGIN)
-const userLogin = asyncChoke( async (req, res,next) => {
+const userLogin = asyncChoke( async (req, res, next) => {
     
         const { givenOTP } = req.body;
         const phone_no = req.params.phNO;

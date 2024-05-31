@@ -133,7 +133,7 @@ const createSendToken = (res, req, phone_no) => {
 
 // create otp on number
 // createSellerOTP API
-exports.sellerOTPsender = async (req, res) => {
+exports.sellerOTPsender = asyncChoke(async (req, res) => {
   
       const generateOTP = () => {
           return Math.floor(1000 + Math.random() * 9000);
@@ -157,24 +157,24 @@ exports.sellerOTPsender = async (req, res) => {
       const [insertQuery] = await db.query(`INSERT INTO otps (phone_no, otp) VALUES (?,?)`,[phone_no,otp])
       return res.status(200).json({ message: 'OTP sent successfully', otp });
   
-};
+});
 
 
 
-exports.sellerLogin = async (req, res) => {
+exports.sellerLogin = asyncChoke(async (req, res) => {
   
       const { givenOTP } = req.body;
       const phone_no = req.params.phNO;
 
       // Check if givenOTP is provided
       if (!givenOTP) {
-          return next(new AppError(400, 'OTP cant be empty'));
+          return next(new AppError(400, 'OTP cannot be empty'));
       }
       if(!phone_no){
-        return next(new AppError(400, 'Phone number cant be empty'));
+        return next(new AppError(400, 'Phone number cannot be empty'));
       }
       const [checkQuery] = await db.query(`SELECT * FROM restaurants WHERE owner_phone_no = ?`, [phone_no])
-      if(checkQuery.length > 1){
+      if(checkQuery.length > 0){
         // Check if the provided OTP matches the OTP stored for the phone number
       const otpQuery = `
       SELECT COUNT(*) AS otp_matched
@@ -207,9 +207,9 @@ exports.sellerLogin = async (req, res) => {
       const token = createSendToken(res, req, phone_no);
       return res.status(200).json({ message: 'Login success', token });
   } else {
-    return next(new AppError(401, 'Invalid OTP'));
+    return next(new AppError(401, 'Invalid OTP'))
   }
       }
       
  
-};
+});
