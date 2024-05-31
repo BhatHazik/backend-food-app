@@ -182,7 +182,7 @@ const userLogin = asyncChoke( async (req, res, next) => {
         }
         const [checkQuery] = await db.query(`SELECT * FROM users WHERE phone_no = ?`, phone_no)
         if(checkQuery.length < 1){
-            return next(new AppError(400, "user does not exist"));
+            return next(new AppError(401, "user does not exist"));
         }
         // Check if the provided OTP matches the OTP stored for the phone number
         const otpQuery = `

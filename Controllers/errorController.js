@@ -1,4 +1,4 @@
-const sendResponse = (res, message, resCode = 400, err) => {
+const sendResponse = (res, message, resCode=400, err) => {
     res.status(resCode).json({
       message,
       err,
@@ -20,5 +20,5 @@ const sendResponse = (res, message, resCode = 400, err) => {
       sendResponse(res, err.sqlMessage, 500, err);
     else if (errCode === "ER_BAD_FIELD_ERROR")
       sendResponse(res, err.sqlMessage, 500, err);
-    else sendResponse(res, err.message, 400, err.stack);
+    else sendResponse(res, err.message, err.statusCode, err.stack);
   };

@@ -3,7 +3,7 @@ const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const jwt = require('jsonwebtoken')
 // CREATE Restaurant
-exports.createRestaurant = async (req, res) => {
+exports.createRestaurant = async (req, res, next) => {
  
     const { owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no } = req.body;
 
@@ -37,7 +37,7 @@ exports.createRestaurant = async (req, res) => {
 };
 
 // READ All Approved Restaurants
-exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
+exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
  
     const { latitude, longitude } = req.body;
     const radius = 5; // Radius in kilometers
@@ -56,7 +56,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
     const [rows, fields] = await db.query(query, [radius]);
     if(rows.length > 0){
       res.status(200).json({
-      status: 'hgjhgkhSuccess',
+      status: 'Success',
       data: rows,
     });
     }
@@ -65,7 +65,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
  
 });
 // READ Restaurant by ID
-exports.getRestaurantById = asyncChoke(async (req, res) => {
+exports.getRestaurantById = asyncChoke(async (req, res, next) => {
 
     const { id } = req.params;
     const query = 'SELECT * FROM restaurants WHERE id = ?';
@@ -83,7 +83,7 @@ exports.getRestaurantById = asyncChoke(async (req, res) => {
 });
                 
 // UPDATE Restaurant
-exports.updateRestaurant = asyncChoke(async (req, res) => {
+exports.updateRestaurant = asyncChoke(async (req, res, next) => {
   
     const { id } = req.params;
     const { owner_name, owner_phone_no, owner_email, restaurant_name } = req.body;
@@ -102,7 +102,7 @@ exports.updateRestaurant = asyncChoke(async (req, res) => {
 });
 
 // DELETE Restaurant
-exports.deleteRestaurant = asyncChoke(async (req, res) => {
+exports.deleteRestaurant = asyncChoke(async (req, res, next) => {
  
     const { id } = req.params;
     const query = 'DELETE FROM restaurants WHERE id = ?';
@@ -133,7 +133,7 @@ const createSendToken = (res, req, phone_no) => {
 
 // create otp on number
 // createSellerOTP API
-exports.sellerOTPsender = asyncChoke(async (req, res) => {
+exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
   
       const generateOTP = () => {
           return Math.floor(1000 + Math.random() * 9000);
@@ -161,7 +161,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res) => {
 
 
 
-exports.sellerLogin = asyncChoke(async (req, res) => {
+exports.sellerLogin = asyncChoke(async (req, res, next) => {
   
       const { givenOTP } = req.body;
       const phone_no = req.params.phNO;
