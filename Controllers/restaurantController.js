@@ -4,12 +4,12 @@ const AppError = require("../Utils/error");
 const jwt = require('jsonwebtoken')
 // CREATE Restaurant
 exports.createRestaurant = async (req, res) => {
-  try {
+ 
     const { owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no } = req.body;
 
     // Check if any required field is missing
     if (!owner_name || !owner_phone_no || !owner_email || !restaurant_name || !pan_no || !GSTIN_no || !FSSAI_no) {
-      throw new AppError(400, 'All fields are required');
+      return next(new AppError(400, 'All fields are required')); 
     }
 
     const query = 'INSERT INTO restaurants (owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no) VALUES (?, ?, ?, ?, ?, ?, ?)';
@@ -33,18 +33,12 @@ exports.createRestaurant = async (req, res) => {
       status: 'Success',
       data: newRestaurant,
     });
-  } catch (error) {
-    console.error('Error creating restaurant:', error);
-    res.status(error.statusCode || 500).json({
-      status: 'Error',
-      message: error.message || 'Internal server error',
-    });
-  }
+ 
 };
 
 // READ All Approved Restaurants
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
-  try {
+ 
     const { latitude, longitude } = req.body;
     const radius = 5; // Radius in kilometers
 
@@ -60,35 +54,32 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res) => {
     `;
 
     const [rows, fields] = await db.query(query, [radius]);
-
-    res.status(200).json({
+    if(rows.length > 0){
+      res.status(200).json({
       status: 'hgjhgkhSuccess',
       data: rows,
     });
-  } catch (error) {
-    console.error('Error fetching restaurants near user:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
+    }
+    return next(new AppError(404, "restaurants not found in your location"));
+    
+ 
 });
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res) => {
-  try {
+
     const { id } = req.params;
     const query = 'SELECT * FROM restaurants WHERE id = ?';
     const [rows, fields] = await db.query(query, [id]);
     
     if (!rows || rows.length === 0) {
-      throw new AppError(404, `Restaurant with id '${id}' not found`);
+      return next(new AppError(404, `Restaurant with id '${id}' not found`));
     }
     
     res.status(200).json({
       status: 'Success',
       data: rows[0],
     });
-  } catch (error) {
-    console.error('Error getting restaurant by ID:', error);
-    throw new AppError(error.statusCode || 500, error.message || 'Internal server error');
-  }
+ 
 });
                 
 // UPDATE Restaurant
@@ -100,34 +91,30 @@ exports.updateRestaurant = asyncChoke(async (req, res) => {
     const values = [ owner_name, owner_phone_no, owner_email, restaurant_name , new Date(), id];
     const result = await db.query(query, values);
     if (result.affectedRows === 0) {
-      throw new AppError(404, `Restaurant with id '${id}' not found`);
+      return next(new AppError(404, `Restaurant with id '${id}' not found`));
     }
     res.status(200).json({
       status: 'Success',
       message: `Restaurant with id '${id}' updated successfully`,
     });
   
-    if(1)
-    return next( new AppError(400,'Internal server error'));
+    
 });
 
 // DELETE Restaurant
 exports.deleteRestaurant = asyncChoke(async (req, res) => {
-  try {
+ 
     const { id } = req.params;
     const query = 'DELETE FROM restaurants WHERE id = ?';
     const result = await db.query(query, [id]);
     if (result.affectedRows === 0) {
-      throw new AppError(404, `Restaurant with id '${id}' not found`);
+      return next(new AppError(404, `Restaurant with id '${id}' not found`));
     }
     res.status(200).json({
       status: 'Success',
       message: `Restaurant with id '${id}' deleted successfully`,
     });
-  } catch (error) {
-    console.error('Error deleting restaurant:', error);
-    throw new AppError(error.statusCode || 500, error.message || 'Internal server error');
-  }
+ 
 });
 
 
@@ -147,7 +134,7 @@ const createSendToken = (res, req, phone_no) => {
 // create otp on number
 // createSellerOTP API
 exports.sellerOTPsender = async (req, res) => {
-  try {
+  
       const generateOTP = () => {
           return Math.floor(1000 + Math.random() * 9000);
       };
@@ -156,7 +143,7 @@ exports.sellerOTPsender = async (req, res) => {
       const { phone_no } = req.body;
       // Check if phone_no is provided
       if (!phone_no) {
-          return res.status(400).json({ error: "Fill all fields" });
+          return next(new AppError(400 , "Fill all fields"))
       }
       
       const [checkQuery] = await db.query(`SELECT * FROM otps WHERE phone_no = ?`, [phone_no]);
@@ -169,25 +156,22 @@ exports.sellerOTPsender = async (req, res) => {
       }
       const [insertQuery] = await db.query(`INSERT INTO otps (phone_no, otp) VALUES (?,?)`,[phone_no,otp])
       return res.status(200).json({ message: 'OTP sent successfully', otp });
-  } catch (error) {
-      console.log(error);
-      return res.status(500).json({ error: 'Internal server error' });
-  }
+  
 };
 
 
 
 exports.sellerLogin = async (req, res) => {
-  try {
+  
       const { givenOTP } = req.body;
       const phone_no = req.params.phNO;
 
       // Check if givenOTP is provided
       if (!givenOTP) {
-          return res.status(400).json({ message: 'OTP cannot be empty' });
+          return next(new AppError(400, 'OTP cant be empty'));
       }
       if(!phone_no){
-          return res.status(400).json({message:"phone_no can't be empty"})
+        return next(new AppError(400, 'Phone number cant be empty'));
       }
       const [checkQuery] = await db.query(`SELECT * FROM restaurants WHERE owner_phone_no = ?`, [phone_no])
       if(checkQuery.length > 1){
@@ -207,7 +191,7 @@ exports.sellerLogin = async (req, res) => {
       const token = createSendToken(res, req, phone_no);
       return res.status(200).json({ message: 'Login success', token });
   } else {
-      return res.status(401).json({ message: 'Invalid OTP' });
+    return next(new AppError(401, 'Invalid OTP'));
   }
       }
       else{
@@ -223,12 +207,9 @@ exports.sellerLogin = async (req, res) => {
       const token = createSendToken(res, req, phone_no);
       return res.status(200).json({ message: 'Login success', token });
   } else {
-      return res.status(401).json({ message: 'Invalid OTP' });
+    return next(new AppError(401, 'Invalid OTP'));
   }
       }
       
-  } catch (error) {
-      console.log(error);
-      return res.status(500).json({ error: 'Internal server error' });
-  }
+ 
 };
