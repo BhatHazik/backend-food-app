@@ -155,7 +155,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
       return res.status(200).json({ message: 'OTP sent successfully', otp });
       }
       const [insertQuery] = await db.query(`INSERT INTO otps (phone_no, otp) VALUES (?,?)`,[phone_no,otp])
-      return res.status(200).json({ message: 'OTP sent successfully', otp });
+      return res.status(200).json({ message: 'OTP sent successfully', otp, phone_no });
   
 });
 

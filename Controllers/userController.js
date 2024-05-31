@@ -54,13 +54,20 @@ const userSignUp = asyncChoke(async (req, res, next) => {
 
        
         if (givenOTP !== "" && phone_no !== "" && email !== "" && name !== "") {
-            const checkUserQuery = `SELECT COUNT(*) AS phone_exist FROM users WHERE phone_no = ?`;
+        const checkUserQuery = `SELECT COUNT(*) AS phone_exist FROM users WHERE phone_no = ?`;
         const [userResult] = await db.query(checkUserQuery, [phone_no]);
 
         if (userResult[0].phone_exist > 0) {
-            return next(new AppError(409, 'user already exists'));
-        }
+            // return next(new AppError(409, 'user already exists'));
+        const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
+        const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
 
+        if (otpResult[0].otp_matched === 0) {
+            return next(new AppError(401,'Invalid OTP' ))
+        }
+        return res.status(200).json({message :"Logged in successfully"});
+        }
+        
         const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
         const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
 
