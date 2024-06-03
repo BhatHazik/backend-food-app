@@ -62,7 +62,6 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
     }
     return next(new AppError(404, "restaurants not found in your location"));
     
- 
 });
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res, next) => {

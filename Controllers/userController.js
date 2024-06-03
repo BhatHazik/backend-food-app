@@ -19,7 +19,7 @@ const createSendToken = (res, req, phone_no) => {
 
 // create otp on number
 // createUserOTP API
-const createUserOTP = asyncChoke(async (req, res, next) => {
+exports.createUserOTP = asyncChoke(async (req, res, next) => {
     const generateOTP = () => Math.floor(1000 + Math.random() * 9000);
     const otp = generateOTP();
     const { username, email, phone_no } = req.body;
@@ -48,7 +48,7 @@ const createUserOTP = asyncChoke(async (req, res, next) => {
 
 
 // userSignUp API
-const userSignUp = asyncChoke(async (req, res, next) => {
+exports.userSignUp = asyncChoke(async (req, res, next) => {
         const { givenOTP } = req.body;
         const { name , email, phNO: phone_no } = req.params;
 
@@ -65,7 +65,7 @@ const userSignUp = asyncChoke(async (req, res, next) => {
         if (otpResult[0].otp_matched === 0) {
             return next(new AppError(401,'Invalid OTP' ))
         }
-        return res.status(200).json({message :"Logged in successfully"});
+        return res.status(200).json({message :"Logged in successfully", token});
         }
         
         const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
@@ -92,7 +92,7 @@ const userSignUp = asyncChoke(async (req, res, next) => {
 // read
 
 
-const readUsers = async (req, res) => {
+exports.readUsers = async (req, res) => {
     
         const query = `SELECT * FROM user`;
         const [result, fields] = await db.query(query);
@@ -103,7 +103,7 @@ const readUsers = async (req, res) => {
 // update
 
 
-const updateUser = asyncChoke(async (req, res, next) => {
+exports.updateUser = asyncChoke(async (req, res, next) => {
    
         const { newUsername, oldUsername, phone_no } = req.body;
 
@@ -124,7 +124,7 @@ const updateUser = asyncChoke(async (req, res, next) => {
 // delete
 
 
-const deleteUser = asyncChoke(async (req, res, next) => {
+exports.deleteUser = asyncChoke(async (req, res, next) => {
   
         const { username } = req.body;
 
@@ -144,7 +144,7 @@ const deleteUser = asyncChoke(async (req, res, next) => {
 
 
 // OTPSENDER
-const userOTPsender = asyncChoke(async (req, res, next) => {
+exports.userOTPsender = asyncChoke(async (req, res, next) => {
    
         const generateOTP = () => {
             return Math.floor(1000 + Math.random() * 9000);
@@ -173,45 +173,6 @@ const userOTPsender = asyncChoke(async (req, res, next) => {
 
 
 
-// OTP CHECKER (LOGIN)
-const userLogin = asyncChoke( async (req, res, next) => {
-    
-        const { givenOTP } = req.body;
-        const phone_no = req.params.phNO;
-        
-
-        // Check if givenOTP is provided
-        if (!givenOTP) {
-            return next(new AppError(400, "Provide an otp"));
-        }
-        if(!phone_no){
-            return next(new AppError(400, "Provide an Phone_no"));
-        }
-        const [checkQuery] = await db.query(`SELECT * FROM users WHERE phone_no = ?`, phone_no)
-        if(checkQuery.length < 1){
-            return next(new AppError(401, "user does not exist"));
-        }
-        // Check if the provided OTP matches the OTP stored for the phone number
-        const otpQuery = `
-            SELECT COUNT(*) AS otp_matched
-            FROM otps
-            WHERE phone_no = ?
-              AND otp = ?
-        `;
-        const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
-
-        if (otpResult[0].otp_matched === 1) {
-
-            const token = createSendToken(res, req, phone_no);
-            
-
-            return res.status(200).json({ message: 'Login success', token });
-        } else {
-            return next(new AppError(401, "Invalid OTP"));
-        }
-    
-});
 
 
 
-module.exports = {createUserOTP,userSignUp,readUsers,updateUser,deleteUser,userOTPsender,userLogin}

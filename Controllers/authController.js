@@ -12,5 +12,5 @@ exports.protect = async(req, res, next) =>{
     
     req.user = result[0];
     
-    next()
+    next();
 }

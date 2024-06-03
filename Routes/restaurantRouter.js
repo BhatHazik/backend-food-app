@@ -4,7 +4,7 @@ const authorization = require('../Controllers/authController')
 const router = express.Router();
 
 // Define routes
-router.get('/', authorization.protect , restaurantController.getAllApprovedRestaurants);
+router.get('/', restaurantController.getAllApprovedRestaurants);
 router.post('/', restaurantController.createRestaurant);
 router.get('/getId/:id', restaurantController.getRestaurantById);
 router.patch('/:id', restaurantController.updateRestaurant);
