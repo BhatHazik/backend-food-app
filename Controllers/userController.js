@@ -7,15 +7,7 @@ const AppError = require('../Utils/error');
 
 
 
-const createSendToken = (res, req, phone_no) => {
-    const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
-    const token = jwt.sign(
-      { data: phone_no },
-      process.env.JWT_SECRET,
-      tokenOptions
-    );
-    return token;
-}
+
 
 // create otp on number
 // createUserOTP API
@@ -46,7 +38,15 @@ exports.createUserOTP = asyncChoke(async (req, res, next) => {
 });
 
 
-
+const createSendToken = (res, req, phone_no) => {
+    const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
+    const token = jwt.sign(
+      { data: phone_no },
+      process.env.JWT_SECRET,
+      tokenOptions
+    );
+    return token;
+}
 // userSignUp API
 exports.userSignUp = asyncChoke(async (req, res, next) => {
         const { givenOTP } = req.body;
@@ -65,6 +65,7 @@ exports.userSignUp = asyncChoke(async (req, res, next) => {
         if (otpResult[0].otp_matched === 0) {
             return next(new AppError(401,'Invalid OTP' ))
         }
+        const token = createSendToken(res, req, phone_no);
         return res.status(200).json({message :"Logged in successfully", token});
         }
         
