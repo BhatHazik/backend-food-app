@@ -60,6 +60,7 @@ exports.createRestaurant = async (req, res, next) => {
 };
 
 // READ All Approved Restaurants
+
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
   const { latitude, longitude } = req.params;
   const radius = 5; // Radius in kilometers
@@ -69,7 +70,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
 
   // Query to get restaurants within the radius of the user's location
   const query = `
-      SELECT restaurants.*, restaurantaddress.latitude AS restaurant_latitude, restaurantaddress.longitude AS restaurant_longitude, ${haversine} AS distance
+      SELECT restaurants.id AS restaurant_id, restaurants.restaurant_name, ${haversine} AS distance
       FROM restaurants
       INNER JOIN restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
       WHERE restaurants.approved = true AND ${haversine} <= ?
@@ -85,6 +86,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
     return next(new AppError(404, "restaurants not found in your location"));
   }
 });
+
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
