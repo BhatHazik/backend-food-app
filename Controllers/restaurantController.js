@@ -61,7 +61,7 @@ exports.createRestaurant = async (req, res, next) => {
 
 // READ All Approved Restaurants
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
-  const { latitude, longitude } = req.body;
+  const { latitude, longitude } = req.params;
   const radius = 5; // Radius in kilometers
 
   // Haversine formula to calculate distance
