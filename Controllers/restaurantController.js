@@ -159,13 +159,19 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
   };
 
   const otp = generateOTP();
-  const { phone_no } = req.body;
+  let { phone_no } = req.body;
+  phone_no = String(phone_no).trim();
+
+  
   // Check if phone_no is provided
   if (!phone_no) {
     return next(new AppError(400, "Fill all fields"));
   }
-  if (!phone_no || typeof phone_no !== 'string' || phone_no.length !== 10) {
-    return next(new AppError(400, "Please enter a 10-digit phone number!"));
+ 
+
+  // Check if phone_no is provided and has exactly 10 digits
+  if (!phone_no || phone_no.length !== 10 || !/^\d{10}$/.test(phone_no)) {
+    return next(new AppError(400, "Please enter a valid 10-digit phone number!"));
   }
   const [checkQuery] = await db.query(`SELECT * FROM otps WHERE phone_no = ?`, [
     phone_no,
@@ -189,7 +195,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
 exports.sellerLogin = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;
   const phone_no = req.params.phNO;
-
+ 
   // Check if givenOTP is provided
   if (!givenOTP) {
     return next(new AppError(400, "OTP cannot be empty"));
