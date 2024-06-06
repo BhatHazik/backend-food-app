@@ -1,12 +1,12 @@
 const express = require('express');
 const restaurantController = require('../Controllers/restaurantController');
-const authorization = require('../Controllers/authController')
+const restaurantAuth = require('../Controllers/restaurantAuthController')
 const router = express.Router();
 
 // Define routes
-router.get('/:latitude/:longitude', authorization.protect , restaurantController.getAllApprovedRestaurants);
-router.post('/', restaurantController.createRestaurant);
-router.get('/getId/:id', restaurantController.getRestaurantById);
+router.get('/:latitude/:longitude', restaurantAuth.protect , restaurantController.getAllApprovedRestaurants);
+router.post('/', restaurantAuth.protect, restaurantController.createRestaurant);
+router.get('/:id',restaurantAuth.protect, restaurantController.getRestaurantById);
 router.patch('/:id', restaurantController.updateRestaurant);
 router.delete('/:id', restaurantController.deleteRestaurant);
 router.post('/sellerSendOtp', restaurantController.sellerOTPsender);

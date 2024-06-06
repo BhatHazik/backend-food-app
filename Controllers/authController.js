@@ -6,7 +6,7 @@ exports.protect = async(req, res, next) =>{
       token = req.headers.authorization.split(" ")[1]
     }
     const {data} = jwt.verify(token, process.env.JWT_SECRET);
-    const query = `SELECT * FROM user WHERE phone_no = ?`
+    const query = `SELECT * FROM users WHERE phone_no = ?`
     const value = [data];
     const [result] = await db.query(query, value);
     

@@ -12,50 +12,163 @@ exports.createRestaurant = async (req, res, next) => {
     pan_no,
     GSTIN_no,
     FSSAI_no,
+    outlet_type,
+    bank_IFSC,
+    bank_account_no,
+    street,
+    landmark,
+    area,
+    pincode,
+    city,
+    state,
+    latitude,
+    longitude,
+    monday,
+    tuesday,
+    wednesday,
+    thursday,
+    friday,
+    saturday,
+    sunday,
+    opening_time,
+    closing_time,
   } = req.body;
 
   // Check if any required field is missing
   if (
     !owner_name ||
-    !owner_phone_no ||
-    !owner_email ||
-    !restaurant_name ||
-    !pan_no ||
-    !GSTIN_no ||
-    !FSSAI_no
+    !owner_phone_no == null ||
+    !owner_email == null ||
+    !restaurant_name == null ||
+    !pan_no == null ||
+    !GSTIN_no == null ||
+    !FSSAI_no == null ||
+    !outlet_type == null ||
+    !bank_IFSC == null ||
+    !bank_account_no == null ||
+    !street == null ||
+    !landmark == null ||
+    !area == null ||
+    !pincode == null ||
+    !city == null ||
+    !state == null ||
+    !latitude == null ||
+    !longitude == null ||
+    monday == null ||
+    tuesday == null ||
+    wednesday == null ||
+    thursday == null ||
+    friday == null ||
+    saturday == null ||
+    sunday == null ||
+    !opening_time == null ||
+    !closing_time == null
   ) {
     return next(new AppError(400, "All fields are required"));
   }
+  
+  const LoginNumber = req.user.owner_phone_no;
+  if(LoginNumber !== owner_phone_no){
+    return next(new AppError(404, 'Please enter same number given at login'));
+  }
+  
+  const [checkQuery1] = await db.query(
+    `SELECT * FROM restaurants WHERE GSTIN_no = ? OR FSSAI_no = ? OR pan_no = ? AND approved = ?`,
+    [GSTIN_no, FSSAI_no, pan_no, false]
+  );
 
-  const query =
-    "INSERT INTO restaurants (owner_name, owner_phone_no, owner_email, restaurant_name, pan_no, GSTIN_no, FSSAI_no) VALUES (?, ?, ?, ?, ?, ?, ?)";
+  if (checkQuery1.length > 0) {
+    return next(new AppError(409, 'Given Documents are in a pending approval check'));
+  }
+  
+   const query =
+    `UPDATE restaurants SET 
+    owner_name = ?, 
+    owner_email = ?, 
+    restaurant_name = ?, 
+    pan_no = ?, 
+    GSTIN_no = ?, 
+    FSSAI_no = ?, 
+    outlet_type = ?, 
+    bank_IFSC = ?, 
+    bank_account_no = ? 
+  WHERE owner_phone_no = ?
+  `;
   const values = [
     owner_name,
-    owner_phone_no,
     owner_email,
     restaurant_name,
     pan_no,
     GSTIN_no,
     FSSAI_no,
+    outlet_type,
+    bank_IFSC,
+    bank_account_no,
+    owner_phone_no
   ];
   const result = await db.query(query, values);
-
+  
   const newRestaurant = {
     id: result.insertId,
     owner_name,
-    owner_phone_no,
     owner_email,
     restaurant_name,
     pan_no,
     GSTIN_no,
     FSSAI_no,
+    outlet_type,
+    bank_IFSC,
+    bank_account_no,
+    owner_phone_no,
     created_at: new Date(),
     updated_at: new Date(),
   };
-
+  const [checkQuery] = await db.query(`SELECT * FROM restaurants WHERE owner_phone_no = ?`, [owner_phone_no]);
+  const restaurant_id = checkQuery[0].id
+  
+  const workingQuery = await db.query(`INSERT INTO restaurants_working (monday,
+                                                                tuesday,
+                                                                wednesday,
+                                                                thursday,
+                                                                friday,
+                                                                saturday,
+                                                                sunday,
+                                                                opening_time,
+                                                                closing_time,
+                                                                restaurant_id) VALUES (
+                                                                  ?,?,?,?,?,?,?,?,?,?
+                                                                )`,[monday,
+                                                                                tuesday,
+                                                                                wednesday,
+                                                                                thursday,
+                                                                                friday,
+                                                                                saturday,
+                                                                                sunday,
+                                                                                opening_time,
+                                                                                closing_time,
+                                                                                restaurant_id])
+  const addressQuery = await db.query(`INSERT INTO restaurantaddress (street,
+    landmark,
+    area,
+    pincode,
+    city,
+    state,
+    latitude,
+    longitude,
+    restaurant_id) VALUES(
+      ?,?,?,?,?,?,?,?,?
+    )`,[street,
+      landmark,
+      area,
+      pincode,
+      city,
+      state,
+      latitude,
+      longitude,
+      restaurant_id]);
   res.status(201).json({
     status: "Success",
-    data: newRestaurant,
+    message: "Your restaurant's checking approval is under process. It may take up to 6 - 7 working days"
   });
 };
 
@@ -90,12 +203,13 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
-  const query = "SELECT * FROM restaurants WHERE id = ?";
-  const [rows, fields] = await db.query(query, [id]);
+  const query = "SELECT * FROM restaurants WHERE id = ? AND approved = ?";
+  const [rows, fields] = await db.query(query, [id, true]);
 
   if (!rows || rows.length === 0) {
     return next(new AppError(404, `Restaurant with id '${id}' not found`));
   }
+  
 
   res.status(200).json({
     status: "Success",
@@ -169,6 +283,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
   }
  
 
+
   // Check if phone_no is provided and has exactly 10 digits
   if (!phone_no || phone_no.length !== 10 || !/^\d{10}$/.test(phone_no)) {
     return next(new AppError(400, "Please enter a valid 10-digit phone number!"));
@@ -218,13 +333,10 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
     const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
 
     if (otpResult[0].otp_matched === 1) {
-      const [sellerSignUp] = await db.query(
-        `INSERT INTO restaurants (owner_phone_no) VALUES(?)`,
-        [phone_no]
-      );
 
       const token = createSendToken(res, req, phone_no);
       return res.status(200).json({ message: "Login success", token });
+      
     } else {
       return next(new AppError(401, "Invalid OTP"));
     }
@@ -238,8 +350,12 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
     const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
 
     if (otpResult[0].otp_matched === 1) {
+      const [sellerSignUp] = await db.query(
+        `INSERT INTO restaurants (owner_phone_no) VALUE(?)`,
+        [phone_no]
+      );
       const token = createSendToken(res, req, phone_no);
-      return res.status(200).json({ message: "Login success", token });
+      return res.status(200).json({ message: "Account created successfully", token });
     } else {
       return next(new AppError(401, "Invalid OTP"));
     }
