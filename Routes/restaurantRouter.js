@@ -5,6 +5,7 @@ const router = express.Router();
 
 // Define routes
 router.get('/:latitude/:longitude', restaurantAuth.protect , restaurantController.getAllApprovedRestaurants);
+router.get('/topRated/:latitude/:longitude', restaurantAuth.protect , restaurantController.getAllTopRatedRestaurants);
 router.post('/', restaurantAuth.protect, restaurantController.createRestaurant);
 router.get('/:id',restaurantAuth.protect, restaurantController.getRestaurantById);
 router.patch('/:id', restaurantController.updateRestaurant);

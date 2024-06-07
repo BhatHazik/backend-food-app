@@ -3,7 +3,7 @@ const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const jwt = require("jsonwebtoken");
 // CREATE Restaurant
-exports.createRestaurant = async (req, res, next) => {
+exports.createRestaurant = asyncChoke(async (req, res, next) => {
   const {
     owner_name,
     owner_phone_no,
@@ -170,10 +170,10 @@ exports.createRestaurant = async (req, res, next) => {
     status: "Success",
     message: "Your restaurant's checking approval is under process. It may take up to 6 - 7 working days"
   });
-};
+});
 
 // READ All Approved Restaurants
-exports.getAllApprovedRestaurants = async (req, res, next) => {
+exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
   const { latitude, longitude } = req.params;
   const radius = 5; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
@@ -228,8 +228,66 @@ exports.getAllApprovedRestaurants = async (req, res, next) => {
   } else {
     return next(new AppError(404, "Restaurants not found in your location"));
   }
-};
+});
 
+exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
+  const { latitude, longitude } = req.params;
+  const radius = 5; // Radius in kilometers
+  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
+  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
+  const bufferTime = 5; // Buffer time in minutes for range
+
+  // Haversine formula to calculate distance
+  const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
+
+  // Query to get restaurants within the radius of the user's location with ratings above 4.0
+  const query = `
+    SELECT 
+      restaurants.id AS restaurant_id, 
+      restaurants.restaurant_name, 
+      ${haversine} AS distance, 
+      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating
+    FROM 
+      restaurants
+    INNER JOIN 
+      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+    LEFT JOIN 
+      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+    WHERE 
+      restaurants.approved = true AND ${haversine} <= ?
+    GROUP BY 
+      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+    HAVING 
+      COALESCE(AVG(restaurants_rating.rating), 0) > 4.0
+    ORDER BY 
+      avg_rating DESC;
+  `;
+
+  const [rows, fields] = await db.query(query, [radius]);
+
+  if (rows.length > 0) {
+    const data = rows.map(row => {
+      const travelTime = row.distance / averageSpeed; // Calculate travel time
+      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
+      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
+
+      return {
+        restaurant_id: row.restaurant_id,
+        restaurant_name: row.restaurant_name,
+        distance: row.distance,
+        avg_rating: parseFloat(row.avg_rating).toFixed(1),
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+      };
+    });
+
+    res.status(200).json({
+      status: "Success",
+      data,
+    });
+  } else {
+    return next(new AppError(404, "Restaurants not found in your location with ratings above 4.0"));
+  }
+});
 
 
 
