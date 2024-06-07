@@ -173,7 +173,7 @@ exports.createRestaurant = async (req, res, next) => {
 };
 
 // READ All Approved Restaurants
-exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
+exports.getAllApprovedRestaurants = async (req, res, next) => {
   const { latitude, longitude } = req.params;
   const radius = 5; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
@@ -183,16 +183,29 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
   // Haversine formula to calculate distance
   const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
 
-  // Query to get restaurants within the radius of the user's location
+  // Query to get restaurants within the radius of the user's location and their average ratings
   const query = `
-    SELECT restaurants.id AS restaurant_id, restaurants.restaurant_name, ${haversine} AS distance
-    FROM restaurants
-    INNER JOIN restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
-    WHERE restaurants.approved = true AND ${haversine} <= ?
+    SELECT 
+      restaurants.id AS restaurant_id, 
+      restaurants.restaurant_name, 
+      ${haversine} AS distance, 
+      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating
+    FROM 
+      restaurants
+    INNER JOIN 
+      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+    LEFT JOIN 
+      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+    WHERE 
+      restaurants.approved = true AND ${haversine} <= ?
+    GROUP BY 
+      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+    ORDER BY 
+      avg_rating DESC;
   `;
 
   const [rows, fields] = await db.query(query, [radius]);
-  
+
   if (rows.length > 0) {
     const data = rows.map(row => {
       const travelTime = row.distance / averageSpeed; // Calculate travel time
@@ -200,7 +213,10 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
       const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
 
       return {
-        ...row,
+        restaurant_id: row.restaurant_id,
+        restaurant_name: row.restaurant_name,
+        distance: row.distance,
+        avg_rating: parseFloat(row.avg_rating).toFixed(1),
         delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
       };
     });
@@ -210,9 +226,11 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
       data,
     });
   } else {
-    return next(new AppError(404, "restaurants not found in your location"));
+    return next(new AppError(404, "Restaurants not found in your location"));
   }
-});
+};
+
+
 
 
 // READ Restaurant by ID
