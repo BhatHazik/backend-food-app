@@ -37,23 +37,23 @@ exports.createRestaurant = async (req, res, next) => {
   // Check if any required field is missing
   if (
     !owner_name ||
-    !owner_phone_no == null ||
-    !owner_email == null ||
-    !restaurant_name == null ||
-    !pan_no == null ||
-    !GSTIN_no == null ||
-    !FSSAI_no == null ||
-    !outlet_type == null ||
-    !bank_IFSC == null ||
-    !bank_account_no == null ||
-    !street == null ||
-    !landmark == null ||
-    !area == null ||
-    !pincode == null ||
-    !city == null ||
-    !state == null ||
-    !latitude == null ||
-    !longitude == null ||
+    !owner_phone_no ||
+    !owner_email ||
+    !restaurant_name ||
+    !pan_no ||
+    !GSTIN_no ||
+    !FSSAI_no ||
+    !outlet_type ||
+    !bank_IFSC ||
+    !bank_account_no ||
+    !street ||
+    !landmark ||
+    !area ||
+    !pincode ||
+    !city ||
+    !state ||
+    !latitude ||
+    !longitude ||
     monday == null ||
     tuesday == null ||
     wednesday == null ||
@@ -61,8 +61,8 @@ exports.createRestaurant = async (req, res, next) => {
     friday == null ||
     saturday == null ||
     sunday == null ||
-    !opening_time == null ||
-    !closing_time == null
+    !opening_time  ||
+    !closing_time 
   ) {
     return next(new AppError(400, "All fields are required"));
   }
@@ -173,32 +173,47 @@ exports.createRestaurant = async (req, res, next) => {
 };
 
 // READ All Approved Restaurants
-
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
   const { latitude, longitude } = req.params;
   const radius = 5; // Radius in kilometers
+  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
+  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
+  const bufferTime = 5; // Buffer time in minutes for range
 
   // Haversine formula to calculate distance
   const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
 
   // Query to get restaurants within the radius of the user's location
   const query = `
-      SELECT restaurants.id AS restaurant_id, restaurants.restaurant_name, ${haversine} AS distance
-      FROM restaurants
-      INNER JOIN restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
-      WHERE restaurants.approved = true AND ${haversine} <= ?
-    `;
+    SELECT restaurants.id AS restaurant_id, restaurants.restaurant_name, ${haversine} AS distance
+    FROM restaurants
+    INNER JOIN restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+    WHERE restaurants.approved = true AND ${haversine} <= ?
+  `;
 
   const [rows, fields] = await db.query(query, [radius]);
+  
   if (rows.length > 0) {
+    const data = rows.map(row => {
+      const travelTime = row.distance / averageSpeed; // Calculate travel time
+      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
+      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
+
+      return {
+        ...row,
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+      };
+    });
+
     res.status(200).json({
       status: "Success",
-      data: rows,
+      data,
     });
   } else {
     return next(new AppError(404, "restaurants not found in your location"));
   }
 });
+
 
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res, next) => {
