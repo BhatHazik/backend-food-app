@@ -289,6 +289,135 @@ exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
   }
 });
 
+exports.getAllPopularRestaurants = asyncChoke(async (req, res, next) => {
+  const { latitude, longitude } = req.params;
+  const radius = 5; // Radius in kilometers
+  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
+  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
+  const bufferTime = 5; // Buffer time in minutes for range
+
+  // Haversine formula to calculate distance
+  const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
+
+  // Query to get restaurants within the radius of the user's location, ordered by order_count descending
+  const query = `
+    SELECT 
+      restaurants.id AS restaurant_id, 
+      restaurants.restaurant_name, 
+      ${haversine} AS distance, 
+      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
+      restaurants.order_count
+    FROM 
+      restaurants
+    INNER JOIN 
+      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+    LEFT JOIN 
+      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+    WHERE 
+      restaurants.approved = true AND ${haversine} <= ?
+    GROUP BY 
+      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+    ORDER BY 
+      restaurants.order_count DESC, avg_rating DESC;
+  `;
+
+  const [rows, fields] = await db.query(query, [radius]);
+
+  if (rows.length > 0) {
+    const data = rows.map(row => {
+      const travelTime = row.distance / averageSpeed; // Calculate travel time
+      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
+      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
+
+      return {
+        restaurant_id: row.restaurant_id,
+        restaurant_name: row.restaurant_name,
+        distance: row.distance,
+        avg_rating: parseFloat(row.avg_rating).toFixed(1),
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+      };
+    });
+
+    res.status(200).json({
+      status: "Success",
+      data,
+    });
+  } else {
+    return next(new AppError(404, "Restaurants not found in your location"));
+  }
+});
+
+exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
+  const { latitude, longitude, categoryName } = req.params;
+
+  const radius = 5; // Radius in kilometers
+  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
+  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
+  const bufferTime = 5; // Buffer time in minutes for range
+
+  // Haversine formula to calculate distance
+  const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
+
+  // Query to get restaurants within the radius of the user's location and their average ratings, filtered by category
+  const query = `
+    SELECT 
+      restaurants.id AS restaurant_id, 
+      restaurants.restaurant_name, 
+      ${haversine} AS distance, 
+      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating
+    FROM 
+      restaurants
+    INNER JOIN 
+      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+    LEFT JOIN 
+      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+    INNER JOIN 
+      menus ON restaurants.id = menus.restaurant_id
+    INNER JOIN 
+      categories ON menus.id = categories.menu_id
+    WHERE 
+      restaurants.approved = true 
+      AND ${haversine} <= ?
+      AND categories.category = ?
+    GROUP BY 
+      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+    ORDER BY 
+      avg_rating DESC;
+  `;
+
+  const [rows, fields] = await db.query(query, [radius, categoryName]);
+
+  if (rows.length > 0) {
+    const data = rows.map(row => {
+      const travelTime = row.distance / averageSpeed; // Calculate travel time
+      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
+      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
+
+      return {
+        restaurant_id: row.restaurant_id,
+        restaurant_name: row.restaurant_name,
+        distance: row.distance,
+        avg_rating: parseFloat(row.avg_rating).toFixed(1),
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+      };
+    });
+
+    res.status(200).json({
+      status: "Success",
+      data,
+    });
+  } else {
+    return next(new AppError(404, "Restaurants not found with this category in your location!"));
+  }
+});
+
+// exports.getAllRestaurantsByCategories = asyncChoke(async(req,res,next)=>{
+//   const {categoryName} = req.body;
+//   const query = `SELECT * FROM categories WHERE category = ?`
+//   const values = [categoryName]
+//   const rows = await db.query(query,values);
+//   if
+// })
 
 
 // READ Restaurant by ID
