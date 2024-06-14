@@ -106,7 +106,10 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
     bank_account_no,
     owner_phone_no
   ];
-  const result = await db.query(query, values);
+  const [result] = await db.query(query, values);
+  if(result.affectedRows === 0 ){
+    return next(new AppError(401, "error while creating your restaurant"));
+  }
   
   const newRestaurant = {
     id: result.insertId,
@@ -166,6 +169,7 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
       latitude,
       longitude,
       restaurant_id]);
+
   res.status(201).json({
     status: "Success",
     message: "Your restaurant's checking approval is under process. It may take up to 6 - 7 working days"
@@ -526,6 +530,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
     .status(200)
     .json({ message: "OTP sent successfully", otp, phone_no });
 });
+
 
 exports.sellerLogin = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;

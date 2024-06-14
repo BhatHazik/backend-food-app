@@ -15,7 +15,7 @@ exports.protect = asyncChoke(async(req, res, next) =>{
   try {
     const { data } = jwt.verify(token, process.env.JWT_SECRET);
 
-    const query = `SELECT * FROM restaurants WHERE owner_phone_no = ?`;
+    const query = `SELECT * FROM users WHERE phone_no = ?`;
     const [result] = await db.query(query, [data]);
 
     if (result.length === 0) {
@@ -23,6 +23,7 @@ exports.protect = asyncChoke(async(req, res, next) =>{
     }
 
     req.user = result[0];
+    
     next();
   } catch (error) {
     next(new AppError(401, "Invalid token. Please log in again!"));

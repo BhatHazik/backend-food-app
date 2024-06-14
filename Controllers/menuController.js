@@ -107,6 +107,7 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     res.status(200).json({
       status: 'Success',
       data: {
+        menuId: menuId,
         menu: menuData,
       },
     });

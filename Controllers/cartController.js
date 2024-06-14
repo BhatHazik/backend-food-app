@@ -1,4 +1,6 @@
 const db = require('../Config/database');
+const { asyncChoke } = require('../Utils/asyncWrapper');
+const AppError = require('../Utils/error');
 
 
 
@@ -9,80 +11,109 @@ const db = require('../Config/database');
 
 // add item in cart
 
-exports.addItemCart = async (req, res) => {
-    try {
-        const { id: item_id } = req.params;  // Extract item_id from request parameters
-        const { quantity } = req.body;  // Extract quantity from request body
-        const user_id = req.user.id;  // Get user_id from the authenticated user
+exports.addItemCart = asyncChoke(async (req, res, next) => {
+    const { id: item_id } = req.params;  // Extract item_id from request parameters
+    const { quantity } = req.body;  // Extract quantity from request body
+    const user_id = req.user.id;  // Get user_id from the authenticated user
 
-        // Fetch item details including restaurant_id
-        const [item] = await db.query(`
-            SELECT items.id as item_id, menus.restaurant_id
-            FROM items
-            JOIN categories ON items.category_id = categories.id
-            JOIN menus ON categories.menu_id = menus.id
-            WHERE items.id = ?
-        `, [item_id]);
-
-        if (item.length === 0) {
-            return res.status(404).json({
-                status: "error",
-                message: "Item not found"
-            });
-        }
-
-        const { item_id: itemIdInMenu, restaurant_id } = item[0];
-
-        // Check if the item is already in the cart for this user
-        const [checkQuery] = await db.query('SELECT * FROM cart WHERE item_id = ? AND user_id = ?', [itemIdInMenu, user_id]);
-        if (checkQuery.length > 0) {
-            return res.status(400).json({
-                status: "error",
-                message: "Item is already in the cart"
-            });
-        }
-
-        // Check if adding this item violates restaurant consistency in the cart
-        const [cartItems] = await db.query(`
-            SELECT items.id as item_id, menus.restaurant_id
-            FROM cart
-            JOIN items ON cart.item_id = items.id
-            JOIN categories ON items.category_id = categories.id
-            JOIN menus ON categories.menu_id = menus.id
-            WHERE cart.user_id = ?
-        `, [user_id]);
-
-        const violatesConsistency = cartItems.some(cartItem => cartItem.restaurant_id !== restaurant_id);
-
-        if (violatesConsistency) {
-            return res.status(400).json({
-                status: "error",
-                message: "Cannot add items from different restaurants to the cart"
-            });
-        }
-
-        // Ensure that item_id and quantity are properly handled
-        const query = `INSERT INTO cart (item_id, quantity, user_id) VALUES (?, ?, ?)`;
-
-        // Execute the query
-        const [result] = await db.query(query, [itemIdInMenu, quantity, user_id]);
-
-        // Respond with success status and the result
-        res.json({
-            status: "success",
-            result
-        });
-        
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({
-            status: "error",
-            message: error.message
-        });
+    if (!quantity || !item_id) {
+        return next(new AppError(401, "Provide credentials!"));
     }
-};
+
+    // Check if user_id exists in users table
+    const [user] = await db.query('SELECT id FROM users WHERE id = ?', [user_id]);
+    if (user.length === 0) {
+        return next(new AppError(404, "User not found"));
+    }
+
+    // Fetch item details including restaurant_id
+    const [item] = await db.query(`
+        SELECT items.id as item_id, menus.restaurant_id
+        FROM items
+        JOIN categories ON items.category_id = categories.id
+        JOIN menus ON categories.menu_id = menus.id
+        WHERE items.id = ?
+    `, [item_id]);
+
+    if (item.length === 0) {
+        return next(new AppError(404, "Item not found"));
+    }
+
+    const { item_id: itemIdInMenu, restaurant_id } = item[0];
+
+    // Check if the item is already in the cart for this user
+    const [checkQuery] = await db.query('SELECT * FROM cart WHERE item_id = ? AND user_id = ?', [itemIdInMenu, user_id]);
+    if (checkQuery.length > 0) {
+        return next(new AppError(400, "Item is already in the cart"));
+    }
+
+    // Check if adding this item violates restaurant consistency in the cart
+    const [cartItems] = await db.query(`
+        SELECT items.id as item_id, menus.restaurant_id
+        FROM cart
+        JOIN items ON cart.item_id = items.id
+        JOIN categories ON items.category_id = categories.id
+        JOIN menus ON categories.menu_id = menus.id
+        WHERE cart.user_id = ?
+    `, [user_id]);
+
+    const violatesConsistency = cartItems.some(cartItem => cartItem.restaurant_id !== restaurant_id);
+
+    if (violatesConsistency) {
+        return next(new AppError(400, "Cannot add items from different restaurants to the cart"));
+    }
+
+    // Ensure that item_id and quantity are properly handled
+    const query = `INSERT INTO cart (item_id, quantity, user_id) VALUES (?, ?, ?)`;
+
+    // Execute the query
+    const [result] = await db.query(query, [itemIdInMenu, quantity, user_id]);
+    if(result.affectedRows < 1){
+        return next(new AppError(400, "Error while adding item in cart!"))
+    }
+    // Respond with success status and the result
+    res.json({
+        status: "success",
+        message: "Item added in your cart!"
+    });
+});
 
 
+
+exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
+    const id = req.params.id;
+    const user_id = req.user.id;
+    const {quantity} = req.body
+    console.log(id)
+    if(!quantity && !id){
+        return next(new AppError(401, "provide credintials!"))
+    }
+    const checkQuery = `SELECT * FROM items WHERE id = ?`
+    const value = [id];
+    const [row] = await db.query(checkQuery, value);
+    if(row.length < 1){
+        console.log(row)
+        return next(new AppError(404, "Item not found!"));
+    }
+    const RemoveQuery = `DELETE FROM cart WHERE user_id = ?;`
+    const RemoveValue = [user_id];
+    const [result] = await db.query(RemoveQuery,RemoveValue);
+    if(result.affectedRows < 1){
+        console.log(result)
+        return next(new AppError(500, "cannot remove item. Try again!"))
+    }
+    const query = `INSERT INTO cart (item_id, quantity, user_id) VALUES (?, ?, ?);`
+    const values = [id, quantity, user_id];
+    const [rows] = await db.query(query, values);
+    if(rows.affectedRows < 1){
+        console.log(rows)
+        return next(new AppError(400, "cannot add item. Try again!"));
+    }
+    res.status(200).json({
+        status:"succuss",
+        message:"item added in your cart!"
+    })
+})
 
 
 
