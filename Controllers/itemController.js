@@ -5,15 +5,17 @@ const {asyncChoke} = require('../Utils/asyncWrapper');
 
 // Create Item by category id
 exports.createItem = asyncChoke(async (req, res, next) => {
-    const { name, description, price } = req.body;
-    const { category_id } = req.params;
+    const { name, description, price, type } = req.body;
+    const { id } = req.params;
 
-    if (!name || !description || !price) {
+    if (!name || !description || !price || !type) {
         return next(new AppError(400, "Fill all fields"));
     }
-
-    const query = `INSERT INTO items (name, price, description, category_id) VALUES (?,?,?,?)`;
-    const [result] = await db.query(query, [name, price, description, category_id]);
+    if (type !== "veg" && type !== "non-veg") {
+        return next(new AppError(400, `Type can't be ${type}`));
+    }
+    const query = `INSERT INTO items (name, price, description, category_id, type) VALUES (?,?,?,?,?)`;
+    const [result] = await db.query(query, [name, price, description, id, type]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to create item"));

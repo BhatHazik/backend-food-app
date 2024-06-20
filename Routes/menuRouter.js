@@ -3,7 +3,7 @@ const menuController = require('../Controllers/menuController');
 const userAuth = require('../Controllers/authController')
 const router = express.Router();
 
-router.post('/:id', menuController.createMenu);
+// router.post('/:id', menuController.createMenu);
 // router.get('/:id', menuController.getAllMenus);
 router.get('/:id/:latitude/:longitude',userAuth.protect, menuController.getMenuById);
 // router.patch('/:id', menuController.updateMenuItem);
