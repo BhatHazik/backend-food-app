@@ -1,6 +1,6 @@
 const db = require('../Config/database');
 const AppError = require('../Utils/error');
-const {asyncChoke} = require('../Utils/asyncWrapper')
+const {asyncChoke} = require('../Utils/asyncWrapper');
 
 exports.getRestaurantsAdmin = async(req, res)=>{
     try{
