@@ -49,6 +49,38 @@ exports.createTitle = asyncChoke(async (req, res, next) => {
     });
 });
 
+
+exports.updateSelectionType = asyncChoke(async (req, res, next) => {
+    const { id } = req.params;
+    const { selection_type } = req.body;
+
+    if (!id) {
+        return next(new AppError(400, "Provide title ID"));
+    }
+
+    if (!selection_type) {
+        return next(new AppError(400, "Provide selection type"));
+    }
+
+    if (selection_type !== "one" && selection_type !=="more than one") {
+        return next(new AppError(400, "Selection type must be 'one' or 'more than one'"));
+    }
+
+    const query = "UPDATE customisation_title SET selection_type = ? WHERE id = ?";
+    const [result] = await db.query(query, [selection_type, id]);
+
+    if (result.affectedRows === 0) {
+        return next(new AppError(400, "Failed to update selection type"));
+    }
+
+    res.status(200).json({
+        status: "success",
+        result
+    });
+});
+
+
+
 // Get all titles by item_id
 exports.getTitlesByItemId = asyncChoke(async (req, res, next) => {
     const { id } = req.params;
@@ -136,6 +168,12 @@ exports.checkTitlesWithNoOptions = asyncChoke(async (req, res, next) => {
     const [titlesWithNoOptions] = await db.query(query, [id]);
 
     if (titlesWithNoOptions.length === 0) {
+        const updateQuery = `UPDATE items SET customisation = ? WHERE id = ?`
+        const value = [true , id]
+        const [result] = await db.query(updateQuery,value);
+        if(result.affectedRows < 1){
+           return next(new AppError(400, "Cannot add customisation to this item!"))
+        }
         return res.status(200).json({
             status: 'success',
             message: 'All titles have options'
@@ -222,4 +260,97 @@ exports.readItems = async (req, res) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 };
+
+
+
+exports.getCustomizations = asyncChoke(async (req, res, next) => {
+    const { id: item_id } = req.params;
+    const user_id = req.user.id;
+
+    // Fetch all titles for the given item ID, including selection_type
+    const fetchTitlesQuery = `SELECT id, title, selection_type FROM customisation_title WHERE item_id = ?`;
+    const [titles] = await db.query(fetchTitlesQuery, [item_id]);
+
+    if (titles.length === 0) {
+        // Check if user_id exists in users table
+        const [user] = await db.query('SELECT id FROM users WHERE id = ?', [user_id]);
+        if (user.length === 0) {
+            return next(new AppError(404, "User not found"));
+        }
+
+        // Fetch item details including restaurant_id
+        const [item] = await db.query(`
+            SELECT items.id as item_id, menus.restaurant_id
+            FROM items
+            JOIN categories ON items.category_id = categories.id
+            JOIN menus ON categories.menu_id = menus.id
+            WHERE items.id = ?
+        `, [item_id]);
+
+        if (item.length === 0) {
+            return next(new AppError(404, "Item not found"));
+        }
+
+        const { item_id: itemIdInMenu, restaurant_id } = item[0];
+
+        // Check if the item is already in the cart for this user
+        const [checkQuery] = await db.query('SELECT * FROM cart WHERE item_id = ? AND user_id = ?', [itemIdInMenu, user_id]);
+        if (checkQuery.length > 0) {
+            return next(new AppError(400, "Item is already in the cart"));
+        }
+
+        // Check if adding this item violates restaurant consistency in the cart
+        const [cartItems] = await db.query(`
+            SELECT items.id as item_id, menus.restaurant_id
+            FROM cart
+            JOIN items ON cart.item_id = items.id
+            JOIN categories ON items.category_id = categories.id
+            JOIN menus ON categories.menu_id = menus.id
+            WHERE cart.user_id = ?
+        `, [user_id]);
+
+        const violatesConsistency = cartItems.some(cartItem => cartItem.restaurant_id !== restaurant_id);
+
+        if (violatesConsistency) {
+            return next(new AppError(400, "Cannot add items from different restaurants to the cart"));
+        }
+
+        // Ensure that item_id and quantity are properly handled
+        const query = `INSERT INTO cart (item_id, user_id) VALUES (?, ?)`;
+
+        // Execute the query
+        const [result] = await db.query(query, [itemIdInMenu, user_id]);
+        if(result.affectedRows < 1){
+            return next(new AppError(400, "Error while adding item in cart!"))
+        }
+
+        // Respond with success status and the result
+        return res.json({
+            status: "success",
+            message: "Item added in your cart!"
+        });
+    }
+
+    // Prepare the result object
+    const customizations = {};
+
+    // Fetch all options for each title
+    for (const title of titles) {
+        const fetchOptionsQuery = `SELECT option_name, additional_price FROM customisation_options WHERE title_id = ?`;
+        const [options] = await db.query(fetchOptionsQuery, [title.id]);
+
+        customizations[title.title] = {
+            selection_type: title.selection_type,
+            options: options.map(option => ({
+                name: option.option_name,
+                price: option.additional_price,
+            }))
+        };
+    }
+
+    res.status(200).json({
+        status: 'success',
+        customizations
+    });
+});
 
