@@ -13,6 +13,8 @@ const categoryRouter = require('./Routes/categoryRouter');
 const offerRouter = require('./Routes/offerRouter');
 const deliveryBoyRouter = require('./Routes/deiveryBoyRouter');
 const cartRouter = require('./Routes/cartRouter');
+const userBillRouter = require('./Routes/userBillRouter');
+const ordersRouter = require('./Routes/ordersRouter')
 const cors = require('cors');
 const { sendErrorRes } = require('./Controllers/errorController');
 const app = express();
@@ -44,7 +46,8 @@ app.use('/api/category', categoryRouter);
 app.use('/api/offers', offerRouter);
 app.use('/api/deliveryBoy', deliveryBoyRouter);
 app.use('/api/cart', cartRouter);
-
+app.use('/api/bill', userBillRouter);
+app.use('/api/orders', ordersRouter)
 // Error handling middleware
 app.use(sendErrorRes);
 

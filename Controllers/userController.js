@@ -78,7 +78,13 @@ exports.userSignUp = asyncChoke(async (req, res, next) => {
         const token = createSendToken(res, req, phone_no);
         const insertUserQuery = `INSERT INTO users (username, email, phone_no) VALUES (?, ?, ?)`;
         await db.query(insertUserQuery, [name, email, phone_no]);
-
+        const userDataQuery = `SELECT * FROM users WHERE phone_no = ?`
+        const userValue = [phone_no]
+        const [result] = await db.query(userDataQuery, userValue)
+        const cartQuery = `INSERT INTO cart (user_id) VALUES(?)`
+        const value = [result[0].id];
+        await db.query(cartQuery,value);
+        console.log("ok");
         return res.status(200).json({ message: "Account created" , token});
         }
         else{

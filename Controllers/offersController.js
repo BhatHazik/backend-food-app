@@ -1,66 +1,96 @@
 const db = require('../Config/database');
-
+const { asyncChoke } = require('../Utils/asyncWrapper');
+const AppError = require('../Utils/error');
 
 // Controller function to create a new offer
-exports.createOffer = async (req, res) => {
-    try {
-      const {
-        offer_name,
-        offer_description,
-        validity_start,
-        validity_end,
-        terms_and_conditions,
-        discount_percentage,
-        discount_condition,
-        discount_on
-      } = req.body;
-  
-      // Validate the inputs (You can add more detailed validation as needed)
-      if (!offer_name || !offer_description || !validity_start || !validity_end || discount_percentage === undefined || !discount_condition || discount_on === undefined) {
-        return res.status(400).json({ error: 'Missing required fields' });
-      }
-  
-      // Insert the offer into the database
-      const query = `
-        INSERT INTO offers (offer_name, offer_description, validity_start, validity_end, terms_and_conditions, discount_percentage, discount_condition, discount_on)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `;
-  
-      const [result] = await db.execute(query, [
-        offer_name,
-        offer_description,
-        validity_start,
-        validity_end,
-        terms_and_conditions,
-        discount_percentage,
-        discount_condition,
-        discount_on
-      ]);
-  
-      res.status(201).json({
-        status: 'Success',
-        data: {
-          id: result.insertId,
-          offer_name,
-          offer_description,
-          validity_start,
-          validity_end,
-          terms_and_conditions,
-          discount_percentage,
-          discount_condition,
-          discount_on,
-          created_at: new Date(),
-          updated_at: new Date(),
-          status: 'active'
-        },
-      });
-    } catch (error) {
-      console.error('Error creating offer:', error);
-      res.status(500).json({ error: 'Internal server error' });
-    }
-  };
-  
+exports.createOffer = asyncChoke(async (req, res, next) => {
+  const { title, description, discount_type, discount_value, minimum_order_amount, maximum_discount_amount, code, terms_and_conditions, expiring_at } = req.body;
 
+  try {
+      // Insert offer into database
+      const [result] = await db.query(
+          `INSERT INTO offers (title, description, discount_type, discount_value, minimum_order_amount, maximum_discount_amount, code, terms_and_conditions, expiring_at) 
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [title, description, discount_type, discount_value, minimum_order_amount, maximum_discount_amount, code, terms_and_conditions, expiring_at]
+      );
+
+      if (result.affectedRows === 1) {
+          res.status(201).json({
+              status: 'success',
+              message: 'Offer created successfully',
+              data: {
+                  offer_id: result.insertId
+              }
+          });
+      } else {
+          return next(new AppError(500, 'Failed to create offer'));
+      }
+  } catch (error) {
+      return next(new AppError(500, error.message || 'Internal server error'));
+  }
+});
+
+
+exports.acceptOfferSeller = asyncChoke(async (req, res, next) => {
+  const restaurant_id = req.user.id;  // Assuming req.user.id contains restaurant_id
+  const { offer_id } = req.params;
+  console.log(restaurant_id)
+  try {
+      // Check if the offer_id exists in the offers table
+      const [offer] = await db.query(`SELECT * FROM offers WHERE id = ?`, [offer_id]);
+      if (offer.length === 0) {
+          return next(new AppError(404, 'Offer not found'));
+      }
+      const acceptedOfferQuery = `SELECT * FROM accepted_offer_seller WHERE restaurant_id = ? AND offer_id = ?`
+      const acceptedofferValue = [restaurant_id , offer_id]
+      const [alreadyAccepted] = await db.query(acceptedOfferQuery,acceptedofferValue);
+      if(alreadyAccepted.length === 1){
+        return next(new AppError(409, "Offer already accepted by this restaurant!"));
+      }
+      // Insert into accepted_offer_seller table
+      const [result] = await db.query(
+          `INSERT INTO accepted_offer_seller (offer_id, restaurant_id) VALUES (?, ?)`,
+          [offer_id, restaurant_id]
+      );
+
+      if (result.affectedRows === 1) {
+          res.status(201).json({
+              status: 'success',
+              message: 'Offer accepted successfully'
+          });
+      } else {
+          return next(new AppError(500, 'Failed to accept offer'));
+      }
+  } catch (error) {
+      return next(new AppError(500, error.message || 'Internal server error'));
+  }
+});
+
+exports.getOffersFromRestaurants = asyncChoke(async (req, res, next) => {
+  const { restaurant_id } = req.params;
+
+  try {
+      // Fetch all offers accepted by the specified restaurant
+      const query = `
+          SELECT o.*
+          FROM offers o
+          JOIN accepted_offer_seller aos ON o.id = aos.offer_id
+          WHERE aos.restaurant_id = ?
+      `;
+      const [rows] = await db.query(query, [restaurant_id]);
+
+      if (rows.length === 0) {
+          return next(new AppError(404, 'No offers found for the given restaurant'));
+      }
+
+      res.status(200).json({
+          status: 'success',
+          data: rows
+      });
+  } catch (error) {
+      return next(new AppError(500, error.message || 'Internal server error'));
+  }
+});
 
 
 
