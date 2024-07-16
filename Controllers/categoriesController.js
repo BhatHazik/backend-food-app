@@ -87,4 +87,47 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
   });
   
 
+  exports.DeleteCategory = asyncChoke(async (req, res, next) => {
+    const { categoryId } = req.params;
+    const restaurant_id = req.user.id;
+  
+    try {
+      // Fetch menu for the given restaurant ID
+      const RestaurantQuery = 'SELECT id FROM menus WHERE restaurant_id = ?';
+      const [menu] = await db.query(RestaurantQuery, [restaurant_id]);
+  
+      if (!menu.length) {
+        return next(new AppError(404, 'No menu found for the given restaurant'));
+      }
+  
+      const menuId = menu[0].id;
+      const getcategoryQuery = 'SELECT id FROM categories WHERE menu_id = ? and id = ?';
+      const [getcategories] = await db.query(getcategoryQuery, [menuId, categoryId]);
+  
+      if (!getcategories.length) {
+        return next(new AppError(404, 'No such category found for this menu id'));
+      }
+  
+      const deleteItemsQuery = 'DELETE FROM items WHERE category_id = ?';
+      const [deletedItems] = await db.query(deleteItemsQuery, [categoryId]);
+  
+      if (deletedItems.affectedRows === 0) {
+        return next(new AppError(401, 'Error while deleting items with this category!'));
+      }
+  
+      const categoryQuery = 'DELETE FROM categories WHERE menu_id = ? AND id = ?';
+      const [categories] = await db.query(categoryQuery, [menuId, categoryId]);
+  
+      if (categories.affectedRows === 0) {
+        return next(new AppError(404, 'Unable to delete this category, try again later!'));
+      }
+  
+      res.status(200).json({
+        status: 'success',
+        message: 'Category and its items deleted successfully'
+      });
+    } catch (err) {
+      return next(new AppError(500, err));
+    }
+  });
   

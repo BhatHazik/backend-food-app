@@ -121,11 +121,6 @@ exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
 
 
 // see items in cart
-
-
-
-
-
 exports.getItemsCart = asyncChoke(async (req, res, next) => {
     const user_id = req.user.id;
     const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
@@ -182,3 +177,5 @@ exports.itemQuantity = async(req, res) =>{
         console.log(err);
     }
 }
+
+
