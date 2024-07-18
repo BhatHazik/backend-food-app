@@ -131,20 +131,19 @@ exports.updateUser = asyncChoke(async (req, res, next) => {
 // delete
 
 
+
 exports.deleteUser = asyncChoke(async (req, res, next) => {
-  
-        const { username } = req.body;
-
-        // Check if username is provided
-        if (!username) {
-            return next(new AppError(400, 'Fill all fields'));
-        }
-
+        
+        const id = req.user.id;
         // Proceed with deletion if username is provided
-        const query = `DELETE FROM user WHERE username = ?`;
-        const [result, fields] = await db.query(query, [username]);
-
-        return res.status(200).json({ result });
+        const query = `DELETE FROM users WHERE id = ?`;
+        const [result] = await db.query(query, [id]);
+        if(result.affectedRows === 0){
+            return next(new AppError(401, "Cannot delete account!"))
+        }
+        return res.status(200).json({ 
+            status :"User account has been deleted!"
+         });
     
 });
 
@@ -178,8 +177,91 @@ exports.userOTPsender = asyncChoke(async (req, res, next) => {
 });
 
 
+exports.getUserDetails = asyncChoke(async(req,res,next)=>{
+    const id = req.user.id;
+   
+       try{ const [userData] = await db.query('SELECT * FROM users WHERE id = ?', [id]);
+        await res.status(200).json({
+            status: 'success',
+            userData
+        });}
+
+    catch(err){
+        return next(new AppError(500, "Internal Server Got An Error" , err));
+    }
+});
+
+exports.updateUserOtpSender = asyncChoke(async(req,res,next)=>{
+    const id = req.user.id;
+    const {name , email, phone_no} = req.body;
+    const generateOTP = () => Math.floor(1000 + Math.random() * 9000);
+    const otp = generateOTP();
+    try{
+        if(name !== '' && email !== '' && phone_no !== ''){
+            const [email_exist] = await db.query('SELECT * FROM users WHERE email = ? AND id != ?',[email,id]);
+            if(email_exist.length > 0){
+                return next(new AppError(401, "User with this email already exists"));
+            }
+            const [phone_exist] = await db.query('SELECT * FROM users WHERE phone_no = ? AND id != ?',[phone_no,id]);
+            if(phone_exist.length > 0){
+                return next(new AppError(401, "User with this phone_no already exists"));
+            }
+            const [otpPhoneExist] = await db.query('SELECT * FROM otps WHERE phone_no = ?',[phone_no]);
+            if(otpPhoneExist.length === 0){
+                const [otpSender] = await db.query('INSERT INTO otps (phone_no, otp) VALUES (?, ?);',[phone_no,otp]);
+            }else{
+                const [updateOtps] = await db.query('UPDATE otps SET otp = ? WHERE phone_no = ?', [otp,phone_no])
+            }
+            res.status(200).json({
+                status : "success",
+                OTP : otp
+            })
+        }
+        else{
+            return next(new AppError(401, "Edit to update profile!"));
+        }
+    }catch(err){
+        return next(new AppError(500, "Internal Server Got An Error" , err));
+    }
+});
 
 
+exports.updateUserProfile = asyncChoke(async(req, res, next)=>{
+    const id = req.user.id;
+    const {givenOTP} = req.body;
+    const {name , email, phone_no} = req.params;
+    try{
+        if(givenOTP !== '' && name !== '' && email !== '' && phone_no !== ''){
+            const [email_exist] = await db.query('SELECT * FROM users WHERE email = ? AND id != ?',[email,id]);
+            if(email_exist.length > 0){
+                return next(new AppError(401, "User with this email already exists"));
+            }
+            const [phone_exist] = await db.query('SELECT * FROM users WHERE phone_no = ? AND id != ?',[phone_no,id]);
+            if(phone_exist.length > 0){
+                return next(new AppError(401, "User with this phone_no already exists"));
+            }
+            const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
+            const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
+    
+            if (otpResult[0].otp_matched === 0) {
+                return next(new AppError(401,'Invalid OTP' ))
+            }
+            const [updateUser] = await db.query('UPDATE users SET username = ? , email = ? , phone_no = ? WHERE id = ?' , [name,email,phone_no,id]);
+            if(updateUser.affectedRows === 0){
+                return next(new AppError(401, "Cannot update user, UPDATION FAILED!"));
+            }
+            await res.status(200).json({
+            status: 'success',
+            message:"User profile updated successfully!"
+        });
+        }
+        else{
+            return next(new AppError(401, "Edit to update profile!"));
+        }
+    }catch(err){
+        return next(new AppError(500, "Internal Server Got An Error" , err));
+    }
+});
 
 
 

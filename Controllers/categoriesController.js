@@ -107,13 +107,18 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
       if (!getcategories.length) {
         return next(new AppError(404, 'No such category found for this menu id'));
       }
-  
-      const deleteItemsQuery = 'DELETE FROM items WHERE category_id = ?';
+      const getItemsCategoryQuery = 'SELECT * FROM items WHERE category_id = ?'
+      const [getItems] = await db.query(getItemsCategoryQuery, [categoryId]);
+      const itemsLength = getItems.length;
+      if(getItems.length > 0){
+        const deleteItemsQuery = 'DELETE FROM items WHERE category_id = ?';
       const [deletedItems] = await db.query(deleteItemsQuery, [categoryId]);
   
       if (deletedItems.affectedRows === 0) {
         return next(new AppError(401, 'Error while deleting items with this category!'));
       }
+      }
+      
   
       const categoryQuery = 'DELETE FROM categories WHERE menu_id = ? AND id = ?';
       const [categories] = await db.query(categoryQuery, [menuId, categoryId]);
@@ -124,7 +129,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
   
       res.status(200).json({
         status: 'success',
-        message: 'Category and its items deleted successfully'
+        message: `Category and its ${itemsLength} items deleted successfully`
       });
     } catch (err) {
       return next(new AppError(500, err));
