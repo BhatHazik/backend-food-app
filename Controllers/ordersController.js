@@ -7,31 +7,35 @@ const PER_KM_FEE = 10;
 const PLATFORM_FEE = 5; // Example platform fee amount, adjust as needed
 const RESTAURANT_CHARGES_RATE = 0.15; // GST and restaurant charges rate
 
-exports.createOrder = asyncChoke(async (req, res, next) => {
+exports.createOrder = async (req, res, next) => {
   const user_id = req.user.id;
-  const distance = req.params.distance; // Assuming distance is passed in the request body
+  const distance = req.params.distance; // Assuming distance is passed in the request params
   const deliveryTip = parseFloat(req.params.delivery_tip) || 0; // Default to 0 if delivery tip is not provided
   const offerCode = req.params.code; // Optional offer code
   const { paymentPassKey } = req.body;
+
   try {
+    // Check if the user has any orders in process
     const [userOrderCheck] = await db.query(
       "SELECT * FROM orders WHERE user_id = ?",
       [user_id]
     );
     if (userOrderCheck.length > 0) {
-        const [orderCheck] = await db.query(
-            "SELECT * FROM orders WHERE user_id = ? AND order_status IN (?, ?, ?, ?)",
-            [user_id, "pending", "confirmed", "on the way", "arrived"]
-          );
+      const [orderCheck] = await db.query(
+        "SELECT * FROM orders WHERE user_id = ? AND order_status IN (?, ?, ?, ?)",
+        [user_id, "pending", "confirmed", "on the way", "arrived"]
+      );
       if (orderCheck.length > 0) {
         return next(
-          new AppError(401, "Your previous order is already in process !")
+          new AppError(401, "Your previous order is already in process!")
         );
       }
     }
+    // Verify payment pass key
     if (paymentPassKey !== "hrod49chr5") {
       return next(new AppError(404, "Payment Not Found!"));
     }
+
     // Step 1: Retrieve the cart_id for the user
     const [cart] = await db.execute("SELECT id FROM cart WHERE user_id = ?", [
       user_id,
@@ -48,7 +52,7 @@ exports.createOrder = asyncChoke(async (req, res, next) => {
     JOIN items i ON ci.item_id = i.id
     WHERE c.user_id = ?
     GROUP BY c.user_id
-`;
+    `;
 
     // Execute the query to get item total
     const [result] = await db.query(itemTotalQuery, [user_id]);
@@ -120,10 +124,10 @@ exports.createOrder = asyncChoke(async (req, res, next) => {
       PLATFORM_FEE +
       gst_and_restaurant_charges;
 
+    // Insert bill into bills table
     const billQuery =
-      "INSERT INTO bills (item_total,delivery_fee,item_discount,delivery_tip,platform_fee,gst_and_restaurant_charges,total_bill,user_id) VALUES (?,?,?,?,?,?,?,?)";
+      "INSERT INTO bills (item_total, delivery_fee, item_discount, delivery_tip, platform_fee, gst_and_restaurant_charges, total_bill, user_id) VALUES (?,?,?,?,?,?,?,?)";
     const billValues = [
-     
       item_total,
       delivery_fee,
       item_discount,
@@ -131,23 +135,23 @@ exports.createOrder = asyncChoke(async (req, res, next) => {
       PLATFORM_FEE,
       gst_and_restaurant_charges,
       total_bill,
-      user_id
+      user_id,
     ];
     const [insert_bill] = await db.query(billQuery, billValues);
-    const bill_id_query =
-      "SELECT * FROM bills WHERE user_id = ? AND status = ?";
+
+    // Retrieve the bill ID
+    const bill_id_query = "SELECT * FROM bills WHERE user_id = ? AND status = ?";
     const bill_id_value = [user_id, "unpaid"];
     const [bill] = await db.query(bill_id_query, bill_id_value);
     const bill_id = bill[0].id;
+
     // Step 2: Retrieve cart_items for the cart_id
     const [cart_items] = await db.execute(
-      "SELECT id, item_id FROM cart_items WHERE cart_id = ?",
+      "SELECT id, item_id, quantity FROM cart_items WHERE cart_id = ?",
       [cart_id]
     );
     if (cart_items.length === 0)
       return next(new AppError(404, "No items in the cart"));
-
-    const cart_item_ids = cart_items.map((item) => item.id);
 
     // Step 3: Get restaurant_id from the first cart_item
     const first_item_id = cart_items[0].item_id;
@@ -155,7 +159,9 @@ exports.createOrder = asyncChoke(async (req, res, next) => {
       "SELECT category_id FROM items WHERE id = ?",
       [first_item_id]
     );
-    if (item.length === 0) return next(new AppError(404, "Item not found"));
+    if (item.length === 0) {
+      return next(new AppError(404, "Item not found"));
+    }
 
     const category_id = item[0].category_id;
     const [category] = await db.execute(
@@ -176,27 +182,57 @@ exports.createOrder = asyncChoke(async (req, res, next) => {
 
     // Step 4: Insert into orders table
     const [orderResult] = await db.execute(
-      "INSERT INTO orders (user_id, order_status, restaurant_id) VALUES ( ?, ?, ?)",
+      "INSERT INTO orders (user_id, order_status, restaurant_id) VALUES (?, ?, ?)",
       [user_id, "pending", restaurant_id]
     );
     const order_id = orderResult.insertId;
 
     // Step 5: Insert into order_items table
-    const orderItemsData = cart_item_ids.map((cart_item_id) => [
+    const orderItemsData = cart_items.map((item) => [
       order_id,
-      cart_item_id,
+      item.item_id,
+      item.quantity,
     ]);
     await db.query(
-      "INSERT INTO order_items (order_id, cart_items_id) VALUES ?",
+      "INSERT INTO order_items (order_id, item_id, quantity) VALUES ?",
       [orderItemsData]
     );
-    console.log(bill_id,order_id,)
+
+    // Step 6: Insert customizations into order_item_customisation table
+    for (const cart_item of cart_items) {
+      const cart_item_id = cart_item.id;
+      const order_item_id_query = `
+        SELECT id FROM order_items WHERE order_id = ? AND item_id = ?`;
+      const [order_item] = await db.query(order_item_id_query, [
+        order_id,
+        cart_item.item_id,
+      ]);
+      const order_item_id = order_item[0].id;
+
+      const customizationsQuery = `
+        SELECT title_id, option_id FROM cart_item_customizations WHERE cart_item_id = ?`;
+      const [customizations] = await db.query(customizationsQuery, [
+        cart_item_id,
+      ]);
+
+      const orderItemCustomizationsData = customizations.map((custom) => [
+        order_item_id,
+        custom.title_id,
+        custom.option_id,
+      ]);
+      if (orderItemCustomizationsData.length > 0) {
+        await db.query(
+          "INSERT INTO order_item_customisation (order_items_id, title_id, option_id) VALUES ?",
+          [orderItemCustomizationsData]
+        );
+      }
+    }
+
+    // Update bill status to 'paid' and associate with the order
     const [billUpdate] = await db.query(
-        `UPDATE bills SET status = ?, order_id = ? WHERE id = ?`,
-        ["paid", order_id, bill_id]
-      );
-      
-    
+      `UPDATE bills SET status = ?, order_id = ? WHERE id = ?`,
+      ["paid", order_id, bill_id]
+    );
     
     // Return the created order as a response
     res.status(201).json({
@@ -206,64 +242,61 @@ exports.createOrder = asyncChoke(async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.log(error);
-    return next(new AppError(500, "Internal Server Error"));
+    return next(new AppError(500, "Internal Server Error", error));
   }
-});
+};
+
+
 
 exports.getOrderDetails = asyncChoke(async (req, res, next) => {
   const user_id = req.user.id;
 
   try {
-    // Step 1: Retrieve orders for the user_id
+    // Step 1: Retrieve the newest order for the user_id
     const [orders] = await db.execute(
-      "SELECT id, order_status, restaurant_id, delivery_boy_id FROM orders WHERE user_id = ?",
+      "SELECT id, order_status, restaurant_id, delivery_boy_id FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1",
       [user_id]
     );
-    if (orders.length === 0){
-        return next(new AppError(404, "No orders found for this user"));
+    if (orders.length === 0) {
+      return next(new AppError(404, "No orders found for this user"));
     }
-      
 
-    // Initialize an array to hold detailed order information
-    const orderDetailsArray = [];
+    const order = orders[0];
+    const order_id = order.id;
+    const restaurant_id = order.restaurant_id;
+    const delivery_boy_id = order.delivery_boy_id;
 
-    // Loop through each order to get additional details
-    for (let order of orders) {
-      const order_id = order.id;
-      const restaurant_id = order.restaurant_id;
-      const delivery_boy_id = order.delivery_boy_id;
-      // Step 2: Get item count from order_items
-      const [orderItemsCount] = await db.execute(
-        "SELECT COUNT(*) as item_count FROM order_items WHERE order_id = ?",
-        [order_id]
-      );
-      const item_count = orderItemsCount[0].item_count;
+    // Step 2: Get item count from order_items
+    const [orderItemsCount] = await db.execute(
+      "SELECT COUNT(*) as item_count FROM order_items WHERE order_id = ?",
+      [order_id]
+    );
+    const item_count = orderItemsCount[0].item_count;
 
-      // Step 3: Get restaurant name
-      const [restaurant] = await db.execute(
-        "SELECT restaurant_name FROM restaurants WHERE id = ?",
-        [restaurant_id]
-      );
-      if (restaurant.length === 0)
-        return next(new AppError(404, "Restaurant not found"));
-
-      const restaurant_name = restaurant[0].restaurant_name;
-
-      // Add the detailed order information to the array
-      orderDetailsArray.push({
-        order_id,
-        order_status: order.order_status,
-        item_count,
-        restaurant_name,
-        delivery_boy_id
-      });
+    // Step 3: Get restaurant name
+    const [restaurant] = await db.execute(
+      "SELECT restaurant_name FROM restaurants WHERE id = ?",
+      [restaurant_id]
+    );
+    if (restaurant.length === 0) {
+      return next(new AppError(404, "Restaurant not found"));
     }
+
+    const restaurant_name = restaurant[0].restaurant_name;
+
+    // Construct the detailed order information
+    const orderDetails = {
+      order_id,
+      order_status: order.order_status,
+      item_count,
+      restaurant_name,
+      delivery_boy_id,
+    };
 
     // Return the detailed order information as a response
     res.status(200).json({
       status: "success",
-      data: orderDetailsArray,
+      data: orderDetails,
     });
   } catch (error) {
     console.log(error);

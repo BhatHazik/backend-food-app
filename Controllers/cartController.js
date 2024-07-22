@@ -84,10 +84,10 @@ exports.addItemCart = asyncChoke(async (req, res, next) => {
 exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
     const id = req.params.id;
     const user_id = req.user.id;
-    const {quantity} = req.body
+    const {quantity} = req.body;
     
     if(!quantity && !id){
-        return next(new AppError(401, "provide credintials!"))
+        return next(new AppError(401, "provide credintials!"));
     }
     const checkQuery = `SELECT * FROM items WHERE id = ?`
     const value = [id];
@@ -109,7 +109,6 @@ exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
     const values = [id, quantity, cart_id];
     const [rows] = await db.query(query, values);
     if(rows.affectedRows < 1){
-        
         return next(new AppError(400, "cannot add item. Try again!"));
     }
     res.status(200).json({
