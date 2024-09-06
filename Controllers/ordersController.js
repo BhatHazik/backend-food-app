@@ -227,13 +227,21 @@ exports.createOrder = async (req, res, next) => {
         );
       }
     }
-
+    
     // Update bill status to 'paid' and associate with the order
     const [billUpdate] = await db.query(
       `UPDATE bills SET status = ?, order_id = ? WHERE id = ?`,
       ["paid", order_id, bill_id]
     );
-    
+    // Step 7: Remove cart_items and cart_item_customisations
+    const cartItemIds = cart_items.map((item) => item.id);
+    if (cartItemIds.length > 0) {
+      await db.query(
+        "DELETE FROM cart_item_customisations WHERE cart_item_id IN (?)",
+        [cartItemIds]
+      );
+      await db.query("DELETE FROM cart_items WHERE cart_id = ?", [cart_id]);
+    }
     // Return the created order as a response
     res.status(201).json({
       status: "success",
