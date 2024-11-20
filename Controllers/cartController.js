@@ -1,4 +1,4 @@
-const db = require('../Config/database');
+const {pool} = require('../Config/database');
 const { asyncChoke } = require('../Utils/asyncWrapper');
 const AppError = require('../Utils/error');
 
@@ -21,13 +21,13 @@ exports.addItemCart = asyncChoke(async (req, res, next) => {
     }
 
     // Check if user_id exists in users table
-    const [user] = await db.query('SELECT id FROM users WHERE id = ?', [user_id]);
+    const [user] = await pool.query('SELECT id FROM users WHERE id = ?', [user_id]);
     if (user.length === 0) {
         return next(new AppError(404, "User not found"));
     }
 
     // Fetch item details including restaurant_id
-    const [item] = await db.query(`
+    const [item] = await pool.query(`
         SELECT items.id as item_id, menus.restaurant_id
         FROM items
         JOIN categories ON items.category_id = categories.id
@@ -40,16 +40,16 @@ exports.addItemCart = asyncChoke(async (req, res, next) => {
     }
 
     const { item_id: itemIdInMenu, restaurant_id } = item[0];
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
     const cart_id = cart[0].id
     // Check if the item is already in the cart for this user
-    const [checkQuery] = await db.query('SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?', [itemIdInMenu, cart_id]);
+    const [checkQuery] = await pool.query('SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?', [itemIdInMenu, cart_id]);
     if (checkQuery.length > 0) {
         return next(new AppError(400, "Item is already in the cart"));
     }
 
     // Check if adding this item violates restaurant consistency in the cart
-    const [cartItems] = await db.query(`
+    const [cartItems] = await pool.query(`
         SELECT items.id as item_id, menus.restaurant_id
         FROM cart_items
         JOIN items ON cart_items.item_id = items.id
@@ -68,7 +68,7 @@ exports.addItemCart = asyncChoke(async (req, res, next) => {
     const query = `INSERT INTO cart_items (item_id, quantity, cart_id) VALUES (?, ?, ?)`;
 
     // Execute the query
-    const [result] = await db.query(query, [itemIdInMenu, quantity, cart_id]);
+    const [result] = await pool.query(query, [itemIdInMenu, quantity, cart_id]);
     if(result.affectedRows < 1){
         return next(new AppError(400, "Error while adding item in cart!"))
     }
@@ -91,23 +91,23 @@ exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
     }
     const checkQuery = `SELECT * FROM items WHERE id = ?`
     const value = [id];
-    const [row] = await db.query(checkQuery, value);
+    const [row] = await pool.query(checkQuery, value);
     if(row.length < 1){
         console.log(row)
         return next(new AppError(404, "Item not found!"));
     }
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
     const cart_id = cart[0].id;
     const RemoveQuery = `DELETE FROM cart_items WHERE cart_id = ?;`
     const RemoveValue = [cart_id];
-    const [result] = await db.query(RemoveQuery,RemoveValue);
+    const [result] = await pool.query(RemoveQuery,RemoveValue);
     if(result.affectedRows < 1){
         console.log(result)
         return next(new AppError(500, "cannot remove item. Try again!"))
     }
     const query = `INSERT INTO cart (item_id, quantity, cart_id) VALUES (?, ?, ?);`
     const values = [id, quantity, cart_id];
-    const [rows] = await db.query(query, values);
+    const [rows] = await pool.query(query, values);
     if(rows.affectedRows < 1){
         return next(new AppError(400, "cannot add item. Try again!"));
     }
@@ -122,7 +122,7 @@ exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
 // see items in cart
 exports.getItemsCart = asyncChoke(async (req, res, next) => {
     const user_id = req.user.id;
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
     const cart_id = cart[0].id;
     // Fetch cart items for the given user ID
     const query = `
@@ -137,7 +137,7 @@ exports.getItemsCart = asyncChoke(async (req, res, next) => {
         JOIN items ON cart_items.item_id = items.id
         WHERE cart_items.cart_id = ?
     `;
-    const [rows] = await db.query(query, [cart_id]);
+    const [rows] = await pool.query(query, [cart_id]);
 
     if (!rows.length) {
         return next(new AppError(404, "No items found in the cart for the given user"));
@@ -157,16 +157,16 @@ exports.itemQuantity = async(req, res) =>{
     const user_id = req.user.id;
     const {quantity} = req.body;
     const { id: item_id } = req.params;
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
     const cart_id = cart[0].id;
     if(quantity < 1){
-      const removeQuery = await db.query(`DELETE FROM cart_items WHERE item_id = ? AND cart_id = ?`, [item_id, cart_id]);
+      const removeQuery = await pool.query(`DELETE FROM cart_items WHERE item_id = ? AND cart_id = ?`, [item_id, cart_id]);
       return res.json({
         status :"success",
         message: "your item has been removed successfully"
       })
     }
-    const [itemQuantity] = await db.query(`UPDATE cart_items SET quantity = ? WHERE item_id = ? AND cart_id = ?`, [quantity, item_id, cart_id]);
+    const [itemQuantity] = await pool.query(`UPDATE cart_items SET quantity = ? WHERE item_id = ? AND cart_id = ?`, [quantity, item_id, cart_id]);
     
     res.json({
         status:"success",

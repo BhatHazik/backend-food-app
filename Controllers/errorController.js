@@ -22,3 +22,5 @@ const sendResponse = (res, message, resCode=400, err) => {
       sendResponse(res, err.sqlMessage, 500, err);
     else sendResponse(res, err.message, err.statusCode, err.stack);
   };
+
+  

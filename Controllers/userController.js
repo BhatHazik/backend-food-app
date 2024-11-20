@@ -1,7 +1,8 @@
-const db = require("../Config/database");
+const { pool } = require("../Config/database");
 const jwt = require("jsonwebtoken");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
+const { isValidPhoneNumber } = require("../Utils/utils");
 
 // create or signup with otp
 
@@ -11,18 +12,32 @@ exports.createUserOTP = asyncChoke(async (req, res, next) => {
   const generateOTP = () => Math.floor(1000 + Math.random() * 9000);
   const otp = generateOTP();
   const { username, email, phone_no } = req.body;
+  // console.log(process.env.DATABASE_NAME,process.env.DATABASE_HOST)
 
   if (username !== "" && email !== "" && phone_no !== "") {
-    const checkQuery = `SELECT * FROM users WHERE phone_no = ? OR email = ?;`;
-    const [checkResult] = await db.query(checkQuery, [phone_no, email]);
-
+    if(!isValidPhoneNumber(phone_no)){
+      return next(new AppError(400, "Please Provide 10 digits mobile number"));
+    }
+    const checkQuery = `SELECT * FROM users WHERE phone_no = ?`;
+    const [checkResult] = await pool.query(checkQuery, [phone_no]);
     if (checkResult.length > 0) {
-      return next(new AppError(400, "Phone number or email already exists"));
+      return next(new AppError(400, "Phone number already exists"));
     } else {
-      const insertQuery = `INSERT INTO otps (phone_no, otp) VALUES (?, ?);`;
-      await db.query(insertQuery, [phone_no, otp]);
-
-      return res.status(200).json({ username, email, phone_no, otp });
+      const otpPhoneExist = `SELECT * FROM otps WHERE phone_no = ?`;
+      const [checkOtpPhone] = await pool.query(otpPhoneExist, [phone_no]);
+      if (checkOtpPhone.length > 0) {
+        const updateOtpQuery = `UPDATE otps SET otp = ? WHERE phone_no = ?`;
+        await pool.query(updateOtpQuery, [otp, phone_no]);
+      } else {
+        const insertQuery = `INSERT INTO otps (phone_no, otp) VALUES (?, ?);`;
+        await pool.query(insertQuery, [phone_no, otp]);
+      }
+      return res
+        .status(200)
+        .json({
+          message: "otp sent successfully",
+          data: { username, email, phone_no, otp },
+        });
     }
   } else {
     return next(new AppError(400, "fill all feilds"));
@@ -31,6 +46,7 @@ exports.createUserOTP = asyncChoke(async (req, res, next) => {
 
 const createSendToken = (res, req, phone_no) => {
   const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
+  // console.log(process.env.JWT_EXPIRY, process.env.JWT_SECRET)
   const token = jwt.sign(
     { data: phone_no },
     process.env.JWT_SECRET,
@@ -44,38 +60,64 @@ exports.userSignUp = asyncChoke(async (req, res, next) => {
   const { name, email, phNO: phone_no } = req.params;
 
   if (givenOTP !== "" && phone_no !== "" && email !== "" && name !== "") {
+    if(!isValidPhoneNumber(phone_no)){
+      return next(new AppError(400, "Please Provide 10 digits mobile number"));
+    }
     const checkUserQuery = `SELECT COUNT(*) AS phone_exist FROM users WHERE phone_no = ?`;
-    const [userResult] = await db.query(checkUserQuery, [phone_no]);
+    const [userResult] = await pool.query(checkUserQuery, [phone_no]);
 
     if (userResult[0].phone_exist > 0) {
-      // return next(new AppError(409, 'user already exists'));
-      const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
-      const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
-
-      if (otpResult[0].otp_matched === 0) {
-        return next(new AppError(401, "Invalid OTP"));
-      }
-      const token = createSendToken(res, req, phone_no);
-      return res.status(200).json({ message: "Logged in successfully", token });
+      return next(new AppError(401, "User Already Exist"));
     }
 
     const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
-    const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
+    const [otpResult] = await pool.query(checkOTPQuery, [phone_no, givenOTP]);
 
     if (otpResult[0].otp_matched === 0) {
       return next(new AppError(401, "Invalid OTP"));
     }
     const token = createSendToken(res, req, phone_no);
     const insertUserQuery = `INSERT INTO users (username, email, phone_no) VALUES (?, ?, ?)`;
-    await db.query(insertUserQuery, [name, email, phone_no]);
+    await pool.query(insertUserQuery, [name, email, phone_no]);
     const userDataQuery = `SELECT * FROM users WHERE phone_no = ?`;
     const userValue = [phone_no];
-    const [result] = await db.query(userDataQuery, userValue);
+    const [result] = await pool.query(userDataQuery, userValue);
     const cartQuery = `INSERT INTO cart (user_id) VALUES(?)`;
     const value = [result[0].id];
-    await db.query(cartQuery, value);
+    await pool.query(cartQuery, value);
     console.log("ok");
-    return res.status(200).json({ message: "Account created", token });
+    return res.status(200).json({status:"Success", userData:result[0], message: "Account created successfully", token});
+  } else {
+    return next(new AppError(400, "Fill all fields"));
+  }
+});
+
+exports.userLogin = asyncChoke(async (req, res, next) => {
+  const { givenOTP } = req.body;
+  const { phone_no } = req.params;
+
+  if (givenOTP !== "" && phone_no !== "") {
+    if(!isValidPhoneNumber(phone_no)){
+      return next(new AppError(400, "Please Provide 10 digits mobile number"));
+    }
+    // console.log(givenOTP)
+    const checkUserQuery = `SELECT * FROM users WHERE phone_no = ?`;
+    const [userResult] = await pool.query(checkUserQuery, [phone_no]);
+// console.log(userResult[0]);
+    if (userResult.length > 0) {
+      // return next(new AppError(409, 'user already exists'));
+      const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
+      const [otpResult] = await pool.query(checkOTPQuery, [phone_no, givenOTP]);
+
+      if (otpResult[0].otp_matched === 0) {
+        return next(new AppError(401, "Invalid OTP"));
+      }
+      const token = createSendToken(res, req, phone_no);
+      return res.status(200).json({status:"Success", message: "Logged in successfully",userData:userResult[0], token });
+    }
+    else{
+      return next(new AppError(404, "User not found"));
+    }
   } else {
     return next(new AppError(400, "Fill all fields"));
   }
@@ -84,8 +126,8 @@ exports.userSignUp = asyncChoke(async (req, res, next) => {
 // read
 
 exports.readUsers = async (req, res) => {
-  const query = `SELECT * FROM user`;
-  const [result, fields] = await db.query(query);
+  const query = `SELECT * FROM users`;
+  const [result, fields] = await pool.query(query);
   res.status(200).json({ result });
 };
 
@@ -101,7 +143,7 @@ exports.updateUser = asyncChoke(async (req, res, next) => {
 
   // Proceed with the update if all fields are provided
   const query = `UPDATE users SET username = ?, phone_no = ? WHERE username = ? AND phone_no = ?`;
-  const [result, fields] = await db.query(query, [
+  const [result, fields] = await pool.query(query, [
     newUsername,
     phone_no,
     oldUsername,
@@ -117,7 +159,7 @@ exports.deleteUser = asyncChoke(async (req, res, next) => {
   const id = req.user.id;
 
   const query = `UPDATE users SET status = ? WHERE id = ?`;
-  const [result] = await db.query(query, ["inactive", id]);
+  const [result] = await pool.query(query, ["inactive", id]);
 
   if (result.affectedRows === 0) {
     return next(new AppError(401, "Cannot delete account!"));
@@ -139,8 +181,11 @@ exports.userOTPsender = asyncChoke(async (req, res, next) => {
   if (!phone_no) {
     return next(new AppError(400, "Fill all fields"));
   }
+  if(!isValidPhoneNumber(phone_no)){
+    return next(new AppError(400, "Please Provide 10 digits mobile number"));
+  }
 
-  const [checkQuery] = await db.query(
+  const [checkQuery] = await pool.query(
     `SELECT * FROM users WHERE phone_no = ?`,
     [phone_no]
   );
@@ -148,7 +193,7 @@ exports.userOTPsender = asyncChoke(async (req, res, next) => {
   if (checkQuery.length === 1) {
     // Update OTP in the database for the provided phone number
     const query = `UPDATE otps SET otp = ? WHERE phone_no = ?`;
-    const [result, fields] = await db.query(query, [otp, phone_no]);
+    const [result, fields] = await pool.query(query, [otp, phone_no]);
     return res.status(200).json({ message: "OTP sent successfully", otp });
   }
   return next(new AppError(404, "User not found"));
@@ -158,7 +203,9 @@ exports.getUserDetails = asyncChoke(async (req, res, next) => {
   const id = req.user.id;
 
   try {
-    const [userData] = await db.query("SELECT * FROM users WHERE id = ?", [id]);
+    const [userData] = await pool.query("SELECT * FROM users WHERE id = ?", [
+      id,
+    ]);
     return res.status(200).json({
       status: "success",
       userData,
@@ -175,14 +222,14 @@ exports.updateUserOtpSender = asyncChoke(async (req, res, next) => {
   const otp = generateOTP();
   try {
     if (name !== "" && email !== "" && phone_no !== "") {
-      const [email_exist] = await db.query(
+      const [email_exist] = await pool.query(
         "SELECT * FROM users WHERE email = ? AND id != ?",
         [email, id]
       );
       if (email_exist.length > 0) {
         return next(new AppError(401, "User with this email already exists"));
       }
-      const [phone_exist] = await db.query(
+      const [phone_exist] = await pool.query(
         "SELECT * FROM users WHERE phone_no = ? AND id != ?",
         [phone_no, id]
       );
@@ -191,17 +238,17 @@ exports.updateUserOtpSender = asyncChoke(async (req, res, next) => {
           new AppError(401, "User with this phone_no already exists")
         );
       }
-      const [otpPhoneExist] = await db.query(
+      const [otpPhoneExist] = await pool.query(
         "SELECT * FROM otps WHERE phone_no = ?",
         [phone_no]
       );
       if (otpPhoneExist.length === 0) {
-        const [otpSender] = await db.query(
+        const [otpSender] = await pool.query(
           "INSERT INTO otps (phone_no, otp) VALUES (?, ?);",
           [phone_no, otp]
         );
       } else {
-        const [updateOtps] = await db.query(
+        const [updateOtps] = await pool.query(
           "UPDATE otps SET otp = ? WHERE phone_no = ?",
           [otp, phone_no]
         );
@@ -224,14 +271,14 @@ exports.updateUserProfile = asyncChoke(async (req, res, next) => {
   const { name, email, phone_no } = req.params;
   try {
     if (givenOTP !== "" && name !== "" && email !== "" && phone_no !== "") {
-      const [email_exist] = await db.query(
+      const [email_exist] = await pool.query(
         "SELECT * FROM users WHERE email = ? AND id != ?",
         [email, id]
       );
       if (email_exist.length > 0) {
         return next(new AppError(401, "User with this email already exists"));
       }
-      const [phone_exist] = await db.query(
+      const [phone_exist] = await pool.query(
         "SELECT * FROM users WHERE phone_no = ? AND id != ?",
         [phone_no, id]
       );
@@ -241,12 +288,12 @@ exports.updateUserProfile = asyncChoke(async (req, res, next) => {
         );
       }
       const checkOTPQuery = `SELECT COUNT(*) AS otp_matched FROM otps WHERE phone_no = ? AND otp = ?`;
-      const [otpResult] = await db.query(checkOTPQuery, [phone_no, givenOTP]);
+      const [otpResult] = await pool.query(checkOTPQuery, [phone_no, givenOTP]);
 
       if (otpResult[0].otp_matched === 0) {
         return next(new AppError(401, "Invalid OTP"));
       }
-      const [updateUser] = await db.query(
+      const [updateUser] = await pool.query(
         "UPDATE users SET username = ? , email = ? , phone_no = ? WHERE id = ?",
         [name, email, phone_no, id]
       );
@@ -278,7 +325,7 @@ exports.addAddress = asyncChoke(async (req, res, next) => {
     if (!validTypes.includes(type)) {
       return next(new AppError(400, `Type cannot be ${type}`));
     }
-    const [userAddress] = await db.query(
+    const [userAddress] = await pool.query(
       "INSERT INTO userAddress (user_id, state, city, area, house_no, lat, lon, type, R_name, R_phone_no) VALUES(?,?,?,?,?,?,?,?,?,?)",
       [id, state, city, area, house_no, lat, lon, type, R_name, R_phone_no]
     );
@@ -297,7 +344,7 @@ exports.addAddress = asyncChoke(async (req, res, next) => {
 exports.getAddedAddress = asyncChoke(async (req, res, next) => {
   const id = req.user.id;
   try {
-    const [Addresses] = await db.query(
+    const [Addresses] = await pool.query(
       "SELECT * FROM userAddress WHERE user_id = ?",
       [id]
     );
@@ -313,49 +360,64 @@ exports.getAddedAddress = asyncChoke(async (req, res, next) => {
   }
 });
 
-
-exports.removeAddress = asyncChoke(async(req, res, next)=>{
-    const id = req.user.id;
-    const {address_id} = req.params;
-    try{
-        const [addressRemoval] = await db.query('DELETE FROM userAddress WHERE user_id = ? AND id = ? ', [id,address_id]);
-        if(addressRemoval.affectedRows === 0){
-            return next(new AppError(400, "Error: Cannot remove address!"));
-        }
-        return res.status(200).json({
-            status:"success",
-            message:"Address Removed!"
-        });
-    }catch(err){
-        return next(new AppError(500, "Internal Server Got An Error", err));
+exports.removeAddress = asyncChoke(async (req, res, next) => {
+  const id = req.user.id;
+  const { address_id } = req.params;
+  try {
+    const [addressRemoval] = await pool.query(
+      "DELETE FROM userAddress WHERE user_id = ? AND id = ? ",
+      [id, address_id]
+    );
+    if (addressRemoval.affectedRows === 0) {
+      return next(new AppError(400, "Error: Cannot remove address!"));
     }
+    return res.status(200).json({
+      status: "success",
+      message: "Address Removed!",
+    });
+  } catch (err) {
+    return next(new AppError(500, "Internal Server Got An Error", err));
+  }
 });
 
-exports.editAddress = asyncChoke(async(req, res, next)=>{
-    const id = req.user.id;
-    const {address_id} = req.params;
-    const validTypes = ["home", "office"];
-    const { state, city, area, house_no, lat, lon, type, R_name, R_phone_no } = req.body;
-    try{
-        if ((state && city && area && house_no && lat && lon && type) === "") {
-            return next(new AppError(401, "Provide all required details!"));
-          }
-    
-          if (!validTypes.includes(type)) {
-            return next(new AppError(400, `Type cannot be ${type}`));
-          }
-          const [userAddress] = await db.query(
-            "UPDATE userAddress SET state = ?, city = ?, area = ?, house_no = ?, lat = ?, lon = ?, type = ?, R_name = ?, R_phone_no = ? WHERE user_id = ? AND id = ?",
-            [state, city, area, house_no, lat, lon, type, R_name, R_phone_no, id, address_id]
-        );
-        if (userAddress.affectedRows === 0) {
-            return next(new AppError(404, "Address not found or no changes made."));
-        }
-          return res.status(200).json({
-            status: "Success",
-            message: "Address Updated!",
-          });
-    }catch(err){
-        return next(new AppError(500, "Internal Server Got An Error", err));
+exports.editAddress = asyncChoke(async (req, res, next) => {
+  const id = req.user.id;
+  const { address_id } = req.params;
+  const validTypes = ["home", "office"];
+  const { state, city, area, house_no, lat, lon, type, R_name, R_phone_no } =
+    req.body;
+  try {
+    if ((state && city && area && house_no && lat && lon && type) === "") {
+      return next(new AppError(401, "Provide all required details!"));
     }
-})
+
+    if (!validTypes.includes(type)) {
+      return next(new AppError(400, `Type cannot be ${type}`));
+    }
+    const [userAddress] = await pool.query(
+      "UPDATE userAddress SET state = ?, city = ?, area = ?, house_no = ?, lat = ?, lon = ?, type = ?, R_name = ?, R_phone_no = ? WHERE user_id = ? AND id = ?",
+      [
+        state,
+        city,
+        area,
+        house_no,
+        lat,
+        lon,
+        type,
+        R_name,
+        R_phone_no,
+        id,
+        address_id,
+      ]
+    );
+    if (userAddress.affectedRows === 0) {
+      return next(new AppError(404, "Address not found or no changes made."));
+    }
+    return res.status(200).json({
+      status: "Success",
+      message: "Address Updated!",
+    });
+  } catch (err) {
+    return next(new AppError(500, "Internal Server Got An Error", err));
+  }
+});

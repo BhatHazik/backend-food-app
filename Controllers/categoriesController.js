@@ -1,4 +1,4 @@
-const db = require('../Config/database');
+const {pool} = require('../Config/database');
 const AppError = require('../Utils/error');
 const {asyncChoke} = require('../Utils/asyncWrapper');
 
@@ -6,21 +6,30 @@ const {asyncChoke} = require('../Utils/asyncWrapper');
 exports.addCategoryById = asyncChoke(async (req, res, next) => {
   const { categoryName } = req.body;
   const restaurant_id = req.user.id;
-
+  
+  if(!categoryName || categoryName === ""){
+    return next(new AppError(401, "Category name required!"));
+  }
   // Fetch menu for the given restaurant ID
   const RestaurantQuery = `SELECT * FROM menus WHERE restaurant_id = ?`;
-  const [menu] = await db.query(RestaurantQuery, [restaurant_id]);
+  const [menu] = await pool.query(RestaurantQuery, [restaurant_id]);
 
   if (!menu.length) {
       return next(new AppError(404, "No menu found for the given restaurant"));
   }
+  
 
   const menuId = menu[0].id;
-  console.log(menuId);
+
+  const [check] = await pool.query(`SELECT * FROM categories WHERE category = ? AND menu_id = ?`, [categoryName, menuId]);
+  // console.log(check.length);
+  if( check.length === 1 ){
+    return next(new AppError(401, "Category with this name already exists!"));
+  }
 
   // Insert category with the fetched menu_id
   const query = `INSERT INTO categories (category, menu_id) VALUES (?, ?)`;
-  const [result] = await db.query(query, [categoryName, menuId]);
+  const [result] = await pool.query(query, [categoryName, menuId]);
 
   if (result.affectedRows === 0) {
       return next(new AppError(400, "Error while adding category"));
@@ -43,7 +52,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
   
     // Fetch menu for the given restaurant ID
     const RestaurantQuery = 'SELECT * FROM menus WHERE restaurant_id = ?';
-    const [menu] = await db.query(RestaurantQuery, [restaurant_id]);
+    const [menu] = await pool.query(RestaurantQuery, [restaurant_id]);
   
     if (!menu.length) {
       return next(new AppError(404, 'No menu found for the given restaurant'));
@@ -52,7 +61,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
     const menuId = menu[0].id;
   
     const categoryQuery = 'SELECT * FROM categories WHERE menu_id = ?';
-    const [categories] = await db.query(categoryQuery, [menuId]);
+    const [categories] = await pool.query(categoryQuery, [menuId]);
   
     if (!categories.length) {
       return next(new AppError(404, 'No categories found for this menu id'));
@@ -66,7 +75,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
       WHERE category_id IN (?)
       GROUP BY category_id
     `;
-    const [itemCounts] = await db.query(itemCountQuery, [categoryIds]);
+    const [itemCounts] = await pool.query(itemCountQuery, [categoryIds]);
   
     // Create a map of category_id to item_count for easy lookup
     const itemCountMap = itemCounts.reduce((acc, itemCount) => {
@@ -94,7 +103,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
     try {
       // Fetch menu for the given restaurant ID
       const RestaurantQuery = 'SELECT id FROM menus WHERE restaurant_id = ?';
-      const [menu] = await db.query(RestaurantQuery, [restaurant_id]);
+      const [menu] = await pool.query(RestaurantQuery, [restaurant_id]);
   
       if (!menu.length) {
         return next(new AppError(404, 'No menu found for the given restaurant'));
@@ -102,17 +111,17 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
   
       const menuId = menu[0].id;
       const getcategoryQuery = 'SELECT id FROM categories WHERE menu_id = ? and id = ?';
-      const [getcategories] = await db.query(getcategoryQuery, [menuId, categoryId]);
+      const [getcategories] = await pool.query(getcategoryQuery, [menuId, categoryId]);
   
       if (!getcategories.length) {
-        return next(new AppError(404, 'No such category found for this menu id'));
+        return next(new AppError(404, 'No such category found!'));
       }
       const getItemsCategoryQuery = 'SELECT * FROM items WHERE category_id = ?'
-      const [getItems] = await db.query(getItemsCategoryQuery, [categoryId]);
+      const [getItems] = await pool.query(getItemsCategoryQuery, [categoryId]);
       const itemsLength = getItems.length;
       if(getItems.length > 0){
         const deleteItemsQuery = 'DELETE FROM items WHERE category_id = ?';
-      const [deletedItems] = await db.query(deleteItemsQuery, [categoryId]);
+      const [deletedItems] = await pool.query(deleteItemsQuery, [categoryId]);
   
       if (deletedItems.affectedRows === 0) {
         return next(new AppError(401, 'Error while deleting items with this category!'));
@@ -121,7 +130,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
       
   
       const categoryQuery = 'DELETE FROM categories WHERE menu_id = ? AND id = ?';
-      const [categories] = await db.query(categoryQuery, [menuId, categoryId]);
+      const [categories] = await pool.query(categoryQuery, [menuId, categoryId]);
   
       if (categories.affectedRows === 0) {
         return next(new AppError(404, 'Unable to delete this category, try again later!'));

@@ -1,6 +1,6 @@
 const dotenv = require('dotenv');
-dotenv.config({path: "./config.env"});
 const express = require('express');
+dotenv.config({path: "./config.env"});
 const menuRouter = require('./Routes/menuRouter');
 const restaurantRouter = require('./Routes/restaurantRouter'); 
 const userRoute = require('./Routes/userRouter')
@@ -53,7 +53,7 @@ app.use(sendErrorRes);
 
 // console.log(process.env)
 // Start the server
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 4000;
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });

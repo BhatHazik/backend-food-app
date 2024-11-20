@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const db = require('../Config/database');
+const {pool} = require('../Config/database');
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 exports.protect = asyncChoke(async(req, res, next) =>{
@@ -16,7 +16,7 @@ exports.protect = asyncChoke(async(req, res, next) =>{
     const { data } = jwt.verify(token, process.env.JWT_SECRET);
 
     const query = `SELECT * FROM users WHERE phone_no = ?`;
-    const [result] = await db.query(query, [data]);
+    const [result] = await pool.query(query, [data]);
 
     if (result.length === 0) {
       return next(new AppError(401, "The user belonging to this token does no longer exist."));

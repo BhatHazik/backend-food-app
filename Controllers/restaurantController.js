@@ -1,7 +1,8 @@
-const db = require("../Config/database");
+const { pool } = require("../Config/database");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const jwt = require("jsonwebtoken");
+const { isValidPhoneNumber } = require("../Utils/utils");
 // CREATE Restaurant
 exports.createRestaurant = asyncChoke(async (req, res, next) => {
   const {
@@ -61,28 +62,29 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
     friday == null ||
     saturday == null ||
     sunday == null ||
-    !opening_time  ||
-    !closing_time 
+    !opening_time ||
+    !closing_time
   ) {
     return next(new AppError(400, "All fields are required"));
   }
-  
+
   const LoginNumber = req.user.owner_phone_no;
-  if(LoginNumber !== owner_phone_no){
-    return next(new AppError(404, 'Please enter same number given at login'));
+  if (LoginNumber !== owner_phone_no) {
+    return next(new AppError(404, "Please enter same number given at login"));
   }
-  
-  const [checkQuery1] = await db.query(
+
+  const [checkQuery1] = await pool.query(
     `SELECT * FROM restaurants WHERE GSTIN_no = ? OR FSSAI_no = ? OR pan_no = ? AND approved = ?`,
     [GSTIN_no, FSSAI_no, pan_no, false]
   );
 
   if (checkQuery1.length > 0) {
-    return next(new AppError(409, 'Given Documents are in a pending approval check'));
+    return next(
+      new AppError(409, "Given Documents are in a pending approval check")
+    );
   }
-  
-   const query =
-    `UPDATE restaurants SET 
+
+  const query = `UPDATE restaurants SET 
     owner_name = ?, 
     owner_email = ?, 
     restaurant_name = ?, 
@@ -104,81 +106,99 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
     outlet_type,
     bank_IFSC,
     bank_account_no,
-    owner_phone_no
+    owner_phone_no,
   ];
-  const [result] = await db.query(query, values);
-  if(result.affectedRows === 0 ){
+  const [result] = await pool.query(query, values);
+  if (result.affectedRows === 0) {
     return next(new AppError(401, "error while creating your restaurant"));
   }
+
   
-  const newRestaurant = {
-    id: result.insertId,
-    owner_name,
-    owner_email,
-    restaurant_name,
-    pan_no,
-    GSTIN_no,
-    FSSAI_no,
-    outlet_type,
-    bank_IFSC,
-    bank_account_no,
-    owner_phone_no,
-    created_at: new Date(),
-    updated_at: new Date(),
-  };
-  const [checkQuery] = await db.query(`SELECT * FROM restaurants WHERE owner_phone_no = ?`, [owner_phone_no]);
-  const restaurant_id = checkQuery[0].id
-  
-  const workingQuery = await db.query(`INSERT INTO restaurants_working (monday,
-                                                                tuesday,
-                                                                wednesday,
-                                                                thursday,
-                                                                friday,
-                                                                saturday,
-                                                                sunday,
-                                                                opening_time,
-                                                                closing_time,
-                                                                restaurant_id) VALUES (
-                                                                  ?,?,?,?,?,?,?,?,?,?
-                                                                )`,[monday,
-                                                                                tuesday,
-                                                                                wednesday,
-                                                                                thursday,
-                                                                                friday,
-                                                                                saturday,
-                                                                                sunday,
-                                                                                opening_time,
-                                                                                closing_time,
-                                                                                restaurant_id])
-  const addressQuery = await db.query(`INSERT INTO restaurantaddress (street,
-    landmark,
-    area,
-    pincode,
-    city,
-    state,
-    latitude,
-    longitude,
-    restaurant_id) VALUES(
-      ?,?,?,?,?,?,?,?,?
-    )`,[street,
-      landmark,
-      area,
-      pincode,
-      city,
-      state,
-      latitude,
-      longitude,
-      restaurant_id]);
+
+  //   const newRestaurant = {
+  //   id: result.insertId,
+  //   owner_name,
+  //   owner_email,
+  //   restaurant_name,
+  //   pan_no,
+  //   GSTIN_no,
+  //   FSSAI_no,
+  //   outlet_type,
+  //   bank_IFSC,
+  //   bank_account_no,
+  //   owner_phone_no,
+  //   created_at: new Date(),
+  //   updated_at: new Date(),
+  // };
+  // const [checkQuery] = await pool.query(
+  //   `SELECT * FROM restaurants WHERE owner_phone_no = ?`,
+  //   [owner_phone_no]
+  // );
+  // const restaurant_id = checkQuery[0].id;
+
+  // const workingQuery = await pool.query(
+  //   `INSERT INTO restaurants_working (monday,
+  //    tuesday,
+  //    wednesday,
+  //    thursday,
+  //    friday,
+  //    saturday,
+  //    sunday,
+  //    opening_time,
+  //    closing_time,
+  //    restaurant_id) VALUES (
+  //      ?,?,?,?,?,?,?,?,?,?
+  //    )`,
+  //   [
+  //     monday,
+  //     tuesday,
+  //     wednesday,
+  //     thursday,
+  //     friday,
+  //     saturday,
+  //     sunday,
+  //     opening_time,
+  //     closing_time,
+  //     restaurant_id,
+  //   ]
+  // );
+  // const addressQuery = await pool.query(
+  //   `INSERT INTO restaurantaddress (street,
+  //   landmark,
+  //   area,
+  //   pincode,
+  //   city,
+  //   state,
+  //   latitude,
+  //   longitude,
+  //   restaurant_id) VALUES(
+  //     ?,?,?,?,?,?,?,?,?
+  //   )`,
+  //   [
+  //     street,
+  //     landmark,
+  //     area,
+  //     pincode,
+  //     city,
+  //     state,
+  //     latitude,
+  //     longitude,
+  //     restaurant_id,
+  //   ]
+  // );
 
   res.status(201).json({
     status: "Success",
-    message: "Your restaurant's checking approval is under process. It may take up to 6 - 7 working days"
+    message:
+      "Your restaurant's checking approval is under process. It may take up to 6 - 7 working days",
   });
 });
 
 // READ All Approved Restaurants
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
+  // console.log("i am here");
   const { latitude, longitude } = req.params;
+  // console.log(latitude,longitude);
   const radius = 5; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
   const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
@@ -189,46 +209,54 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
 
   // Query to get restaurants within the radius of the user's location and their average ratings
   const query = `
-    SELECT 
-      restaurants.id AS restaurant_id, 
-      restaurants.restaurant_name, 
-      ${haversine} AS distance, 
-      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating
-    FROM 
-      restaurants
-    INNER JOIN 
-      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
-    LEFT JOIN 
-      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
-    WHERE 
-      restaurants.approved = true AND ${haversine} <= ?
-    GROUP BY 
-      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
-    ORDER BY 
-      avg_rating DESC;
-  `;
+  SELECT 
+    restaurants.id AS restaurant_id, 
+    restaurants.restaurant_name, 
+    ${haversine} AS distance, 
+    COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
+    GROUP_CONCAT(DISTINCT categories.category) AS categories
+  FROM 
+    restaurants
+  INNER JOIN 
+    restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+  LEFT JOIN 
+    restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+  LEFT JOIN 
+    menus ON menus.restaurant_id = restaurants.id
+  LEFT JOIN 
+    categories ON categories.menu_id = menus.id
+  WHERE 
+    restaurants.approved = true AND ${haversine} <= ?
+  GROUP BY 
+    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+  ORDER BY 
+    avg_rating DESC;
+`;
 
-  const [rows, fields] = await db.query(query, [radius]);
 
+  const [rows, fields] = await pool.query(query, [radius]);
+// console.log(rows);
   if (rows.length > 0) {
-    const data = rows.map(row => {
+    const data = rows.map((row) => {
       const travelTime = row.distance / averageSpeed; // Calculate travel time
       const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
       const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-
+    
       return {
         restaurant_id: row.restaurant_id,
         restaurant_name: row.restaurant_name,
         distance: row.distance,
         avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`,
+        categories: row.categories ? row.categories.split(',') : [], // Convert categories string to array
       };
     });
-
+    
     res.status(200).json({
       status: "Success",
       data,
     });
+    
   } else {
     return next(new AppError(404, "Restaurants not found in your location"));
   }
@@ -236,7 +264,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
 
 exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
   const { latitude, longitude } = req.params;
-  const radius = 5; // Radius in kilometers
+  const radius = 10; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
   const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
   const bufferTime = 5; // Buffer time in minutes for range
@@ -246,56 +274,69 @@ exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
 
   // Query to get restaurants within the radius of the user's location with ratings above 4.0
   const query = `
-    SELECT 
-      restaurants.id AS restaurant_id, 
-      restaurants.restaurant_name, 
-      ${haversine} AS distance, 
-      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating
-    FROM 
-      restaurants
-    INNER JOIN 
-      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
-    LEFT JOIN 
-      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
-    WHERE 
-      restaurants.approved = true AND ${haversine} <= ?
-    GROUP BY 
-      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
-    HAVING 
-      COALESCE(AVG(restaurants_rating.rating), 0) > 4.0
-    ORDER BY 
-      avg_rating DESC;
-  `;
+  SELECT 
+    restaurants.id AS restaurant_id, 
+    restaurants.restaurant_name, 
+    ${haversine} AS distance, 
+    COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
+    GROUP_CONCAT(DISTINCT categories.category) AS categories
+  FROM 
+    restaurants
+  INNER JOIN 
+    restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+  LEFT JOIN 
+    restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+  LEFT JOIN 
+    menus ON menus.restaurant_id = restaurants.id
+  LEFT JOIN 
+    categories ON categories.menu_id = menus.id
+  WHERE 
+    restaurants.approved = true AND ${haversine} <= ?
+  GROUP BY 
+    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+  HAVING 
+    COALESCE(AVG(restaurants_rating.rating), 0) > 4.0
+  ORDER BY 
+    avg_rating DESC;
+`;
 
-  const [rows, fields] = await db.query(query, [radius]);
+
+  const [rows, fields] = await pool.query(query, [radius]);
 
   if (rows.length > 0) {
-    const data = rows.map(row => {
+    const data = rows.map((row) => {
       const travelTime = row.distance / averageSpeed; // Calculate travel time
       const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
       const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-
+    
       return {
         restaurant_id: row.restaurant_id,
         restaurant_name: row.restaurant_name,
         distance: row.distance,
         avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`,
+        categories: row.categories ? row.categories.split(',') : [], // Convert categories string to array
       };
     });
-
+    
     res.status(200).json({
       status: "Success",
       data,
     });
+    
   } else {
-    return next(new AppError(404, "Restaurants not found in your location with ratings above 4.0"));
+    return next(
+      new AppError(
+        404,
+        "Restaurants not found in your location with ratings above 4.0"
+      )
+    );
   }
 });
 
 exports.getAllPopularRestaurants = asyncChoke(async (req, res, next) => {
   const { latitude, longitude } = req.params;
-  const radius = 5; // Radius in kilometers
+  const radius = 10; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
   const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
   const bufferTime = 5; // Buffer time in minutes for range
@@ -305,47 +346,56 @@ exports.getAllPopularRestaurants = asyncChoke(async (req, res, next) => {
 
   // Query to get restaurants within the radius of the user's location, ordered by order_count descending
   const query = `
-    SELECT 
-      restaurants.id AS restaurant_id, 
-      restaurants.restaurant_name, 
-      ${haversine} AS distance, 
-      COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
-      restaurants.order_count
-    FROM 
-      restaurants
-    INNER JOIN 
-      restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
-    LEFT JOIN 
-      restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
-    WHERE 
-      restaurants.approved = true AND ${haversine} <= ?
-    GROUP BY 
-      restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
-    ORDER BY 
-      restaurants.order_count DESC, avg_rating DESC;
-  `;
+  SELECT 
+    restaurants.id AS restaurant_id, 
+    restaurants.restaurant_name, 
+    ${haversine} AS distance, 
+    COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
+    restaurants.order_count,
+    GROUP_CONCAT(DISTINCT categories.category) AS categories
+  FROM 
+    restaurants
+  INNER JOIN 
+    restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+  LEFT JOIN 
+    restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+  LEFT JOIN 
+    menus ON menus.restaurant_id = restaurants.id
+  LEFT JOIN 
+    categories ON categories.menu_id = menus.id
+  WHERE 
+    restaurants.approved = true AND ${haversine} <= ?
+  GROUP BY 
+    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+  ORDER BY 
+    restaurants.order_count DESC, avg_rating DESC;
+`;
 
-  const [rows, fields] = await db.query(query, [radius]);
+
+  const [rows, fields] = await pool.query(query, [radius]);
 
   if (rows.length > 0) {
-    const data = rows.map(row => {
+    const data = rows.map((row) => {
       const travelTime = row.distance / averageSpeed; // Calculate travel time
       const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
       const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-
+    
       return {
         restaurant_id: row.restaurant_id,
         restaurant_name: row.restaurant_name,
         distance: row.distance,
         avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+        order_count: row.order_count,
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`,
+        categories: row.categories ? row.categories.split(',') : [], // Convert categories string to array
       };
     });
-
+    
     res.status(200).json({
       status: "Success",
       data,
     });
+    
   } else {
     return next(new AppError(404, "Restaurants not found in your location"));
   }
@@ -354,7 +404,7 @@ exports.getAllPopularRestaurants = asyncChoke(async (req, res, next) => {
 exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
   const { latitude, longitude, categoryName } = req.params;
 
-  const radius = 5; // Radius in kilometers
+  const radius = 10; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
   const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
   const bufferTime = 5; // Buffer time in minutes for range
@@ -389,10 +439,10 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
       avg_rating DESC;
   `;
 
-  const [rows, fields] = await db.query(query, [radius, categoryName]);
+  const [rows, fields] = await pool.query(query, [radius, categoryName]);
 
   if (rows.length > 0) {
-    const data = rows.map(row => {
+    const data = rows.map((row) => {
       const travelTime = row.distance / averageSpeed; // Calculate travel time
       const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
       const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
@@ -402,7 +452,9 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
         restaurant_name: row.restaurant_name,
         distance: row.distance,
         avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`
+        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(
+          maxTime
+        )} min`,
       };
     });
 
@@ -411,7 +463,12 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
       data,
     });
   } else {
-    return next(new AppError(404, "Restaurants not found with this category in your location!"));
+    return next(
+      new AppError(
+        404,
+        "Restaurants not found with this category in your location!"
+      )
+    );
   }
 });
 
@@ -419,21 +476,19 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
 //   const {categoryName} = req.body;
 //   const query = `SELECT * FROM categories WHERE category = ?`
 //   const values = [categoryName]
-//   const rows = await db.query(query,values);
+//   const rows = await pool.query(query,values);
 //   if
 // })
-
 
 // READ Restaurant by ID
 exports.getRestaurantById = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
   const query = "SELECT * FROM restaurants WHERE id = ? AND approved = ?";
-  const [rows, fields] = await db.query(query, [id, true]);
+  const [rows, fields] = await pool.query(query, [id, true]);
 
   if (!rows || rows.length === 0) {
     return next(new AppError(404, `Restaurant with id '${id}' not found`));
   }
-  
 
   res.status(200).json({
     status: "Success",
@@ -455,7 +510,7 @@ exports.updateRestaurant = asyncChoke(async (req, res, next) => {
     new Date(),
     id,
   ];
-  const result = await db.query(query, values);
+  const result = await pool.query(query, values);
   if (result.affectedRows === 0) {
     return next(new AppError(404, `Restaurant with id '${id}' not found`));
   }
@@ -469,7 +524,7 @@ exports.updateRestaurant = asyncChoke(async (req, res, next) => {
 exports.deleteRestaurant = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
   const query = "DELETE FROM restaurants WHERE id = ?";
-  const result = await db.query(query, [id]);
+  const result = await pool.query(query, [id]);
   if (result.affectedRows === 0) {
     return next(new AppError(404, `Restaurant with id '${id}' not found`));
   }
@@ -500,42 +555,45 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
   let { phone_no } = req.body;
   phone_no = String(phone_no).trim();
 
-  
-  // Check if phone_no is provided
+ 
   if (!phone_no) {
     return next(new AppError(400, "Fill all fields"));
   }
+
  
-
-
-  // Check if phone_no is provided and has exactly 10 digits
-  if (!phone_no || phone_no.length !== 10 || !/^\d{10}$/.test(phone_no)) {
-    return next(new AppError(400, "Please enter a valid 10-digit phone number!"));
+  if(!isValidPhoneNumber(phone_no)){
+    return next(new AppError(400, "Please Provide 10 digits mobile number"));
   }
-  const [checkQuery] = await db.query(`SELECT * FROM otps WHERE phone_no = ?`, [
-    phone_no,
-  ]);
+  const [checkQuery] = await pool.query(
+    `SELECT * FROM otps WHERE phone_no = ?`,
+    [phone_no]
+  );
 
   if (checkQuery.length === 1) {
     // Update OTP in the database for the provided phone number
     const query = `UPDATE otps SET otp = ? WHERE phone_no = ?`;
-    const [result, fields] = await db.query(query, [otp, phone_no]);
+    const [result, fields] = await pool.query(query, [otp, phone_no]);
+    // if(result.affectedRows === 1){
+    //   console.log(result.affectedRows, "updated")
+    // }
     return res.status(200).json({ message: "OTP sent successfully", otp });
   }
-  const [insertQuery] = await db.query(
+  const [insertQuery] = await pool.query(
     `INSERT INTO otps (phone_no, otp) VALUES (?,?)`,
     [phone_no, otp]
   );
+  if(insertQuery.affectedRows === 1){
+    console.log(insertQuery.affectedRows, "inserted")
+  }
   return res
     .status(200)
     .json({ message: "OTP sent successfully", otp, phone_no });
 });
 
-
 exports.sellerLogin = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;
   const phone_no = req.params.phNO;
- 
+
   // Check if givenOTP is provided
   if (!givenOTP) {
     return next(new AppError(400, "OTP cannot be empty"));
@@ -543,7 +601,10 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
   if (!phone_no) {
     return next(new AppError(400, "Phone number cannot be empty"));
   }
-  const [checkQuery] = await db.query(
+  if(!isValidPhoneNumber(phone_no)){
+    return next(new AppError(400, "Please Provide 10 digits mobile number"));
+  }
+  const [checkQuery] = await pool.query(
     `SELECT * FROM restaurants WHERE owner_phone_no = ?`,
     [phone_no]
   );
@@ -555,13 +616,13 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
       WHERE phone_no = ?
         AND otp = ?
   `;
-    const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
+    const [otpResult] = await pool.query(otpQuery, [phone_no, givenOTP]);
+    
+
 
     if (otpResult[0].otp_matched === 1) {
-
       const token = createSendToken(res, req, phone_no);
       return res.status(200).json({ message: "Login success", token });
-      
     } else {
       return next(new AppError(401, "Invalid OTP"));
     }
@@ -572,15 +633,23 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
       WHERE phone_no = ?
         AND otp = ?
   `;
-    const [otpResult] = await db.query(otpQuery, [phone_no, givenOTP]);
-
+    const [otpResult] = await pool.query(otpQuery, [phone_no, givenOTP]);
+    //  console.log(otpResult)
     if (otpResult[0].otp_matched === 1) {
-      const [sellerSignUp] = await db.query(
+      const [sellerSignUp] = await pool.query(
         `INSERT INTO restaurants (owner_phone_no) VALUE(?)`,
         [phone_no]
       );
-      const token = createSendToken(res, req, phone_no);
-      return res.status(200).json({ message: "Account created successfully", token });
+      if(sellerSignUp.affectedRows === 1){
+        const token = createSendToken(res, req, phone_no);
+        return res
+          .status(200)
+          .json({ message: "Account created successfully", token });
+      }
+      else{
+        return next(new AppError(401, "SignUp Error"));
+      }
+      
     } else {
       return next(new AppError(401, "Invalid OTP"));
     }

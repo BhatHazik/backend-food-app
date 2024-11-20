@@ -1,21 +1,43 @@
-const db = require('../Config/database');
+const {pool} = require('../Config/database');
 const AppError = require('../Utils/error');
 const {asyncChoke} = require('../Utils/asyncWrapper');
+const { uploadFile } = require('../Config/aws');
 
 
 // Create Item by category id
+
+
 exports.createItem = asyncChoke(async (req, res, next) => {
     const { name, description, price, type } = req.body;
     const { id } = req.params;
-
-    if (!name || !description || !price || !type) {
-        return next(new AppError(400, "Fill all fields"));
+    const image = req.file;
+ 
+    if (!name || !description || !price || !type || !image) {
+        return next(new AppError(400, "Fill all fields, including an image file"));
     }
+
+ 
     if (type !== "veg" && type !== "non-veg") {
         return next(new AppError(400, `Type can't be ${type}`));
     }
-    const query = `INSERT INTO items (name, price, description, category_id, type) VALUES (?,?,?,?,?)`;
-    const [result] = await db.query(query, [name, price, description, id, type]);
+
+
+    const [check] = await pool.query(`SELECT * FROM items WHERE category_id = ? AND name = ? AND type = ?`, [id, name, type]);
+    if (check.length >= 1) {
+        return next(new AppError(401, `Item with this name and type already exists!`));
+    }
+
+
+    let imageUrl;
+    try {
+        const result = await uploadFile(image, `${name}-${Date.now()}`); // Pass a unique key for the image file
+        imageUrl = result.Location; // S3 response contains URL in `Location`
+    } catch (error) {
+        return next(new AppError(500, "Failed to upload image"));
+    }
+
+    const query = `INSERT INTO items (name, price, description, category_id, type, image_url) VALUES (?,?,?,?,?,?)`;
+    const [result] = await pool.query(query, [name, price, description, id, type, imageUrl]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to create item"));
@@ -23,9 +45,11 @@ exports.createItem = asyncChoke(async (req, res, next) => {
 
     res.status(200).json({
         status: "success",
-        result
+        message: "Item created successfully",
+        data: { id: result.insertId, name, description, price, type, imageUrl }
     });
 });
+
 
 // Create title by item_id
 exports.createTitle = asyncChoke(async (req, res, next) => {
@@ -37,7 +61,7 @@ exports.createTitle = asyncChoke(async (req, res, next) => {
     }
 
     const query = `INSERT INTO customisation_title (item_id, title) VALUES (?, ?)`;
-    const [result] = await db.query(query, [id, title_name]);
+    const [result] = await pool.query(query, [id, title_name]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to create title"));
@@ -45,7 +69,7 @@ exports.createTitle = asyncChoke(async (req, res, next) => {
 
     res.status(200).json({
         status: "success",
-        result
+        message: "Customisation title created successfully!"
     });
 });
 
@@ -67,7 +91,7 @@ exports.updateSelectionType = asyncChoke(async (req, res, next) => {
     }
 
     const query = "UPDATE customisation_title SET selection_type = ? WHERE id = ?";
-    const [result] = await db.query(query, [selection_type, id]);
+    const [result] = await pool.query(query, [selection_type, id]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to update selection type"));
@@ -75,7 +99,7 @@ exports.updateSelectionType = asyncChoke(async (req, res, next) => {
 
     res.status(200).json({
         status: "success",
-        result
+        message: "selection type submited successfully!"
     });
 });
 
@@ -86,7 +110,7 @@ exports.getTitlesByItemId = asyncChoke(async (req, res, next) => {
     const { id } = req.params;
 
     const query = `SELECT id, title FROM customisation_title WHERE item_id = ?`;
-    const [titles] = await db.query(query, [id]);
+    const [titles] = await pool.query(query, [id]);
 
     if (!titles || titles.length === 0) {
         return next(new AppError(404, "No titles found for this item"));
@@ -107,12 +131,12 @@ exports.createOption = asyncChoke(async (req, res, next) => {
         return next(new AppError(400, "Provide All Fields!"));
     }
     const checkQuery = `SELECT * FROM customisation_title WHERE id = ?`;
-    const [options] = await db.query(checkQuery, [id]);
+    const [options] = await pool.query(checkQuery, [id]);
     if(options.length <= 0){
         return next(new AppError(404, "Customisation title not found!"))
     }
     const query = `INSERT INTO customisation_options (title_id, option_name, additional_price) VALUES (?, ?, ?)`;
-    const [result] = await db.query(query, [id, option_name, additional_price || 0.00]);
+    const [result] = await pool.query(query, [id, option_name, additional_price || 0.00]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to create option"));
@@ -120,7 +144,7 @@ exports.createOption = asyncChoke(async (req, res, next) => {
 
     res.status(200).json({
         status: "success",
-        result
+        message:"Option created successfully!"
     });
 });
 
@@ -129,7 +153,7 @@ exports.getOptionsByTitleId = asyncChoke(async (req, res, next) => {
     const { id } = req.params;
 
     const query = `SELECT * FROM customisation_options WHERE title_id = ?`;
-    const [options] = await db.query(query, [id]);
+    const [options] = await pool.query(query, [id]);
     if(options.length <= 0){
         return next(new AppError(404, "Customisation title not found!"))
     }
@@ -149,7 +173,7 @@ exports.checkTitlesWithNoOptions = asyncChoke(async (req, res, next) => {
 
     // First, check if there are any titles for the given item_id
     const checkTitlesQuery = `SELECT * FROM customisation_title WHERE item_id = ?`;
-    const [titles] = await db.query(checkTitlesQuery, [id]);
+    const [titles] = await pool.query(checkTitlesQuery, [id]);
 
     if (titles.length === 0) {
         return next(new AppError(404, `No titles found for item with id '${id}'`));
@@ -165,12 +189,12 @@ exports.checkTitlesWithNoOptions = asyncChoke(async (req, res, next) => {
         GROUP BY customisation_title.id 
         HAVING COUNT(customisation_options.id) = 0
     `;
-    const [titlesWithNoOptions] = await db.query(query, [id]);
+    const [titlesWithNoOptions] = await pool.query(query, [id]);
 
     if (titlesWithNoOptions.length === 0) {
         const updateQuery = `UPDATE items SET customisation = ? WHERE id = ?`
         const value = [true , id]
-        const [result] = await db.query(updateQuery,value);
+        const [result] = await pool.query(updateQuery,value);
         if(result.affectedRows < 1){
            return next(new AppError(400, "Cannot add customisation to this item!"));
         }
@@ -200,7 +224,7 @@ exports.updateOption = asyncChoke(async (req, res, next) => {
 
     // Update the option in the database
     const query = `UPDATE customisation_options SET option_name = ?, additional_price = ? WHERE id = ?`;
-    const [result] = await db.query(query, [option_name, additional_price, id]);
+    const [result] = await pool.query(query, [option_name, additional_price, id]);
 
     // Check if the option was found and updated
     if (result.affectedRows === 0) {
@@ -219,7 +243,7 @@ exports.discardCustomizations = asyncChoke(async (req, res, next) => {
 
     // Step 1: Fetch all titles for the given item ID
     const fetchTitlesQuery = `SELECT id FROM customisation_title WHERE item_id = ?`;
-    const [titles] = await db.query(fetchTitlesQuery, [id]);
+    const [titles] = await pool.query(fetchTitlesQuery, [id]);
 
     if (titles.length === 0) {
         return next(new AppError(404, `No titles found for item with id '${id}'`));
@@ -229,19 +253,19 @@ exports.discardCustomizations = asyncChoke(async (req, res, next) => {
 
     // Step 2: Fetch all options for the fetched titles
     const fetchOptionsQuery = `SELECT id FROM customisation_options WHERE title_id IN (?)`;
-    const [options] = await db.query(fetchOptionsQuery, [titleIds]);
+    const [options] = await pool.query(fetchOptionsQuery, [titleIds]);
 
     const optionIds = options.map(option => option.id);
 
     // Step 3: Delete all fetched options
     if (optionIds.length > 0) {
         const deleteOptionsQuery = `DELETE FROM customisation_options WHERE id IN (?)`;
-        await db.query(deleteOptionsQuery, [optionIds]);
+        await pool.query(deleteOptionsQuery, [optionIds]);
     }
 
     // Step 4: Delete all fetched titles
     const deleteTitlesQuery = `DELETE FROM customisation_title WHERE id IN (?)`;
-    await db.query(deleteTitlesQuery, [titleIds]);
+    await pool.query(deleteTitlesQuery, [titleIds]);
 
     res.status(200).json({
         status: 'success',
@@ -254,7 +278,7 @@ exports.readItems = async (req, res) => {
     try {
         const {id} = req.params;
         const query = `SELECT * FROM items WHERE category_id = ?`;
-        const [result, fields] = await db.query(query, [id]);
+        const [result, fields] = await pool.query(query, [id]);
         return res.status(200).json({ result });
     } catch (error) {
         console.error(error);
@@ -270,11 +294,11 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
 
     // Fetch all titles for the given item ID, including selection_type
     const fetchTitlesQuery = `SELECT id, title, selection_type FROM customisation_title WHERE item_id = ?`;
-    const [titles] = await db.query(fetchTitlesQuery, [item_id]);
+    const [titles] = await pool.query(fetchTitlesQuery, [item_id]);
 
     if (titles.length === 0) {
         // Fetch item details including restaurant_id
-        const [item] = await db.query(`
+        const [item] = await pool.query(`
             SELECT items.id as item_id, menus.restaurant_id
             FROM items
             JOIN categories ON items.category_id = categories.id
@@ -287,17 +311,17 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
         }
 
         const { item_id: itemIdInMenu, restaurant_id } = item[0];
-        const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+        const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
         const cart_id = cart[0].id;
         
         // Check if the item is already in the cart for this user
-        const [checkQuery] = await db.query('SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?', [itemIdInMenu, cart_id]);
+        const [checkQuery] = await pool.query('SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?', [itemIdInMenu, cart_id]);
         if (checkQuery.length > 0) {
             return next(new AppError(400, "Item is already in the cart"));
         }
 
         // Check if adding this item violates restaurant consistency in the cart
-        const [cartItems] = await db.query(`
+        const [cartItems] = await pool.query(`
             SELECT items.id as item_id, menus.restaurant_id
             FROM cart_items
             JOIN items ON cart_items.item_id = items.id
@@ -316,7 +340,7 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
         const query = `INSERT INTO cart_items (item_id, quantity, cart_id) VALUES (?, ?, ?)`;
 
         // Execute the query
-        const [result] = await db.query(query, [itemIdInMenu, quantity, cart_id]);
+        const [result] = await pool.query(query, [itemIdInMenu, quantity, cart_id]);
         if(result.affectedRows < 1){
             return next(new AppError(400, "Error while adding item in cart!"))
         }
@@ -334,7 +358,7 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
     // Fetch all options for each title
     for (const title of titles) {
         const fetchOptionsQuery = `SELECT id, option_name, additional_price FROM customisation_options WHERE title_id = ?`;
-        const [options] = await db.query(fetchOptionsQuery, [title.id]);
+        const [options] = await pool.query(fetchOptionsQuery, [title.id]);
 
         customizations[title.title] = {
             selection_type: title.selection_type,
@@ -354,13 +378,14 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
 });
 
 
+
 exports.submitCustomizations = asyncChoke(async (req, res, next) => {
     const { id: item_id } = req.params;
     const user_id = req.user.id;
-    const { customizations } = req.body; // Assuming customizations is an array of { title_id, option_ids }
+    const { customizations,quantity } = req.body; // Assuming customizations is an array of { title_id, option_ids }
 
     // Fetch item details to ensure it exists
-    const [item] = await db.query(
+    const [item] = await pool.query(
         `SELECT items.id as item_id, menus.restaurant_id
          FROM items
          JOIN categories ON items.category_id = categories.id
@@ -374,39 +399,41 @@ exports.submitCustomizations = asyncChoke(async (req, res, next) => {
     }
 
     // Get the user's cart
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
     if (cart.length === 0) {
         return next(new AppError(404, "Cart not found"));
     }
     const cart_id = cart[0].id;
 
     // Check if the item is already in the cart for this user
-    const [cartItems] = await db.query(`SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?`, [item_id, cart_id]);
-    if (cartItems.length === 0) {
-        return next(new AppError(404, "Item not found in the cart"));
+    const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?`, [item_id, cart_id]);
+    if (cartItems.length === 1){
+        return next(new AppError(404, "Item is already in cart"));
     }
-    const cart_item_id = cartItems[0].id;
+    const [addItemCart] = await pool.query(`INSERT INTO cart_items (item_id, quantity, cart_id) VALUES(?,?,?)`,[item_id,quantity,cart_id])
+
+    const cart_item_id = addItemCart.insertId;
 
     // Validate the customizations
     for (const customization of customizations) {
         const { title_id, option_ids } = customization;
 
         // Validate title_id
-        const [title] = await db.query(`SELECT * FROM customisation_title WHERE id = ? AND item_id = ?`, [title_id, item_id]);
+        const [title] = await pool.query(`SELECT * FROM customisation_title WHERE id = ? AND item_id = ?`, [title_id, item_id]);
         if (title.length === 0) {
             return next(new AppError(400, `Invalid title_id: ${title_id}`));
         }
 
         for (const option_id of option_ids) {
             // Validate option_id
-            const [option] = await db.query(`SELECT * FROM customisation_options WHERE id = ? AND title_id = ?`, [option_id, title_id]);
+            const [option] = await pool.query(`SELECT * FROM customisation_options WHERE id = ? AND title_id = ?`, [option_id, title_id]);
             if (option.length === 0) {
                 return next(new AppError(400, `Invalid option_id: ${option_id}`));
             }
 
             // Insert into cart_item_customizations
             const insertQuery = `INSERT INTO cart_item_customizations (cart_item_id, title_id, option_id) VALUES (?, ?, ?)`;
-            await db.query(insertQuery, [cart_item_id, title_id, option_id]);
+            await pool.query(insertQuery, [cart_item_id, title_id, option_id]);
         }
     }
 
@@ -423,14 +450,14 @@ exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
     const user_id = req.user.id;
 
     // Get the user's cart
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
     if (cart.length === 0) {
         return next(new AppError(404, "Cart not found"));
     }
     const cart_id = cart[0].id;
 
     // Fetch the cart item to ensure it exists in the cart
-    const [cartItems] = await db.query(`SELECT * FROM cart_items WHERE cart_id = ? AND item_id = ?`, [cart_id, item_id]);
+    const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND item_id = ?`, [cart_id, item_id]);
     if (cartItems.length === 0) {
         return next(new AppError(404, "Item not found in the cart"));
     }
@@ -449,7 +476,7 @@ exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
         JOIN customisation_options co ON cit.option_id = co.id
         WHERE cit.cart_item_id = ?`;
 
-    const [customizations] = await db.query(fetchCustomizationsQuery, [cart_item_id]);
+    const [customizations] = await pool.query(fetchCustomizationsQuery, [cart_item_id]);
 
     if (customizations.length === 0) {
         return next(new AppError(404, "No customizations found for this item"));
@@ -489,21 +516,21 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
     const { customizations } = req.body; // Assuming customizations is an array of { title_id, option_ids }
 
     // Get the user's cart
-    const [cart] = await db.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
     if (cart.length === 0) {
         return next(new AppError(404, "Cart not found"));
     }
     const cart_id = cart[0].id;
 
     // Fetch the cart item to ensure it exists in the cart
-    const [cartItems] = await db.query(`SELECT * FROM cart_items WHERE cart_id = ? AND item_id = ?`, [cart_id, item_id]);
+    const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND item_id = ?`, [cart_id, item_id]);
     if (cartItems.length === 0) {
         return next(new AppError(404, "Item not found in the cart"));
     }
     const cart_item_id = cartItems[0].id;
 
     // Fetch the current customizations for the cart item
-    const [currentCustomizations] = await db.query(`SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`, [cart_item_id]);
+    const [currentCustomizations] = await pool.query(`SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`, [cart_item_id]);
 
     // Prepare sets for comparison
     const currentCustomizationMap = new Map();
@@ -519,7 +546,7 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
         const { title_id, option_ids } = customization;
 
         // Validate title_id
-        const [title] = await db.query(`SELECT * FROM customisation_title WHERE id = ? AND item_id = ?`, [title_id, item_id]);
+        const [title] = await pool.query(`SELECT * FROM customisation_title WHERE id = ? AND item_id = ?`, [title_id, item_id]);
         if (title.length === 0) {
             return next(new AppError(400, `Invalid title_id: ${title_id}`));
         }
@@ -527,7 +554,7 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
         // Add new or update existing options
         for (const option_id of option_ids) {
             // Validate option_id
-            const [option] = await db.query(`SELECT * FROM customisation_options WHERE id = ? AND title_id = ?`, [option_id, title_id]);
+            const [option] = await pool.query(`SELECT * FROM customisation_options WHERE id = ? AND title_id = ?`, [option_id, title_id]);
             if (option.length === 0) {
                 return next(new AppError(400, `Invalid option_id: ${option_id}`));
             }
@@ -538,7 +565,7 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
             } else {
                 // Insert new customization option
                 const insertQuery = `INSERT INTO cart_item_customizations (cart_item_id, title_id, option_id) VALUES (?, ?, ?)`;
-                await db.query(insertQuery, [cart_item_id, title_id, option_id]);
+                await pool.query(insertQuery, [cart_item_id, title_id, option_id]);
             }
         }
     }
@@ -547,7 +574,7 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
     for (const [title_id, option_ids] of currentCustomizationMap.entries()) {
         for (const option_id of option_ids) {
             const deleteQuery = `DELETE FROM cart_item_customizations WHERE cart_item_id = ? AND title_id = ? AND option_id = ?`;
-            await db.query(deleteQuery, [cart_item_id, title_id, option_id]);
+            await pool.query(deleteQuery, [cart_item_id, title_id, option_id]);
         }
     }
 
