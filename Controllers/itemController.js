@@ -53,15 +53,47 @@ exports.createItem = asyncChoke(async (req, res, next) => {
 
 // Create title by item_id
 exports.createTitle = asyncChoke(async (req, res, next) => {
-    const { title_name } = req.body;
+    const { title_name , make_price_option } = req.body;
+    const restaurant_id = req.user.id;
     const { id } = req.params;
-
+console.log(make_price_option);
     if (!title_name) {
         return next(new AppError(400, "Provide title name"));
     }
+    if (make_price_option !== true && make_price_option !== false) {
+        return next(new AppError(400, "Make price option should be true or false"));
+    }
+    
+    const [check] = await pool.query(`SELECT 
+        r.id AS restaurant_id
+    FROM 
+        restaurants r
+    JOIN 
+        menus m ON r.id = m.restaurant_id
+    JOIN 
+        categories c ON m.id = c.menu_id
+    JOIN 
+        items i ON c.id = i.category_id
+    WHERE 
+        r.id = ?
+        AND i.id = ?`,[restaurant_id, id]
+    );
 
-    const query = `INSERT INTO customisation_title (item_id, title) VALUES (?, ?)`;
-    const [result] = await pool.query(query, [id, title_name]);
+    if (check.length === 0) {
+        return next(new AppError(404, "Item not found or not associated with this restaurant"));
+    }
+    const [itemCheck] = await pool.query(`SELECT * FROM customisation_title WHERE item_id = ? AND title = ?`,[id,title_name]);
+    // console.log(itemCheck);
+    if(itemCheck.length === 1){
+        return next(new AppError(401, "Title with this name already exists"));
+    }
+    const [checkTitle] = await pool.query(`SELECT * FROM customisation_title WHERE item_id = ? && make_price_option = ?`, [id,true]);
+    if (checkTitle.length === 1 && make_price_option === true) {
+        return next(new AppError(401, "You cannot add 2 customisation as price"));
+    }
+    
+    const query = `INSERT INTO customisation_title (item_id, title, make_price_option) VALUES (?, ?, ?)`;
+    const [result] = await pool.query(query, [id, title_name, make_price_option]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to create title"));
@@ -77,7 +109,7 @@ exports.createTitle = asyncChoke(async (req, res, next) => {
 exports.updateSelectionType = asyncChoke(async (req, res, next) => {
     const { id } = req.params;
     const { selection_type } = req.body;
-
+    
     if (!id) {
         return next(new AppError(400, "Provide title ID"));
     }
@@ -109,7 +141,7 @@ exports.updateSelectionType = asyncChoke(async (req, res, next) => {
 exports.getTitlesByItemId = asyncChoke(async (req, res, next) => {
     const { id } = req.params;
 
-    const query = `SELECT id, title FROM customisation_title WHERE item_id = ?`;
+    const query = `SELECT id, title, make_price_option FROM customisation_title WHERE item_id = ?`;
     const [titles] = await pool.query(query, [id]);
 
     if (!titles || titles.length === 0) {
@@ -363,10 +395,11 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
         customizations[title.title] = {
             selection_type: title.selection_type,
             title_id: title.id,
+            title: title.title,
             options: options.map(option => ({
-                name: option.option_name,
-                price: option.additional_price,
-                id: option.id,
+                option_name: option.option_name,
+                additional_price: option.additional_price,
+                option_id: option.id,
             }))
         };
     }
@@ -382,11 +415,11 @@ exports.getCustomizations = asyncChoke(async (req, res, next) => {
 exports.submitCustomizations = asyncChoke(async (req, res, next) => {
     const { id: item_id } = req.params;
     const user_id = req.user.id;
-    const { customizations,quantity } = req.body; // Assuming customizations is an array of { title_id, option_ids }
+    const { customizations, quantity } = req.body; // Assuming customizations is an array of { title_id, option_ids }
 
-    // Fetch item details to ensure it exists
+    // Fetch item details to ensure it exists and get its price
     const [item] = await pool.query(
-        `SELECT items.id as item_id, menus.restaurant_id
+        `SELECT items.id as item_id, items.price as base_price, menus.restaurant_id
          FROM items
          JOIN categories ON items.category_id = categories.id
          JOIN menus ON categories.menu_id = menus.id
@@ -398,6 +431,11 @@ exports.submitCustomizations = asyncChoke(async (req, res, next) => {
         return next(new AppError(404, "Item not found"));
     }
 
+    const base_price = item[0]?.base_price;
+    if (!base_price || isNaN(base_price)) {
+        return next(new AppError(400, "Invalid or missing base price for the item"));
+    }
+
     // Get the user's cart
     const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
     if (cart.length === 0) {
@@ -407,47 +445,115 @@ exports.submitCustomizations = asyncChoke(async (req, res, next) => {
 
     // Check if the item is already in the cart for this user
     const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE item_id = ? AND cart_id = ?`, [item_id, cart_id]);
-    if (cartItems.length === 1){
+    if (cartItems.length === 1) {
         return next(new AppError(404, "Item is already in cart"));
     }
-    const [addItemCart] = await pool.query(`INSERT INTO cart_items (item_id, quantity, cart_id) VALUES(?,?,?)`,[item_id,quantity,cart_id])
 
-    const cart_item_id = addItemCart.insertId;
-
-    // Validate the customizations
-    for (const customization of customizations) {
-        const { title_id, option_ids } = customization;
-
-        // Validate title_id
-        const [title] = await pool.query(`SELECT * FROM customisation_title WHERE id = ? AND item_id = ?`, [title_id, item_id]);
-        if (title.length === 0) {
-            return next(new AppError(400, `Invalid title_id: ${title_id}`));
-        }
-
-        for (const option_id of option_ids) {
-            // Validate option_id
-            const [option] = await pool.query(`SELECT * FROM customisation_options WHERE id = ? AND title_id = ?`, [option_id, title_id]);
-            if (option.length === 0) {
-                return next(new AppError(400, `Invalid option_id: ${option_id}`));
-            }
-
-            // Insert into cart_item_customizations
-            const insertQuery = `INSERT INTO cart_item_customizations (cart_item_id, title_id, option_id) VALUES (?, ?, ?)`;
-            await pool.query(insertQuery, [cart_item_id, title_id, option_id]);
-        }
+    // Validate quantity
+    if (!quantity || isNaN(quantity) || quantity <= 0) {
+        return next(new AppError(400, "Invalid or missing quantity"));
     }
 
-    res.status(200).json({
-        status: 'success',
-        message: 'Customizations submitted successfully'
-    });
-});
+    // Calculate the total customization price
+let customization_price = 0;
+let final_base_price = parseFloat(base_price); // Start with the item's actual base price
+
+for (const customization of customizations) {
+    const { title_id, option_ids } = customization;
+
+    // Validate title_id and fetch `make_price_option`
+    const [title] = await pool.query(
+        `SELECT make_price_option FROM customisation_title WHERE id = ? AND item_id = ?`, 
+        [title_id, item_id]
+    );
+    if (title.length === 0) {
+        return next(new AppError(400, `Invalid title_id: ${title_id}`));
+    }
+
+    const make_price_option = title[0]?.make_price_option;
+
+    for (const option_id of option_ids) {
+        // Validate option_id and get additional_price
+        const [option] = await pool.query(
+            `SELECT additional_price FROM customisation_options WHERE id = ? AND title_id = ?`, 
+            [option_id, title_id]
+        );
+        if (option.length === 0) {
+            return next(new AppError(400, `Invalid option_id: ${option_id}`));
+        }
+
+        const option_price = parseFloat(option[0]?.additional_price);
+        console.log(option_price);
+        if (isNaN(option_price)) {
+            return next(new AppError(400, `Invalid or missing price for option_id: ${option_id}`));
+        }
+
+        if (make_price_option) {
+            // Override base price with the option's price
+            final_base_price = option_price;
+        } else {
+            // Add option price to customization price
+            customization_price += option_price;
+        }
+    }
+}
+
+// Calculate total price for the item
+const item_total = (final_base_price + customization_price) * quantity;
+
+console.log({ item_total, final_base_price, customization_price });
+
+// Insert the item into the cart with the total price
+const [addItemCart] = await pool.query(
+    `INSERT INTO cart_items (item_id, quantity, cart_id, item_total) VALUES (?, ?, ?, ?)`,
+    [item_id, quantity, cart_id, item_total]
+);
+
+const cart_item_id = addItemCart.insertId;
+
+// Insert the customizations into cart_item_customizations
+for (const customization of customizations) {
+    const { title_id, option_ids } = customization;
+
+    for (const option_id of option_ids) {
+        const insertQuery = `INSERT INTO cart_item_customizations (cart_item_id, title_id, option_id) VALUES (?, ?, ?)`;
+        await pool.query(insertQuery, [cart_item_id, title_id, option_id]);
+    }
+}
+
+res.status(200).json({
+    status: 'success',
+    message: 'Customizations submitted successfully',
+})});
 
 
 
-exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
+
+exports.submitCustomizationsWithCheck = asyncChoke(async (req, res, next) => {
     const { id: item_id } = req.params;
     const user_id = req.user.id;
+    const { customizations, quantity } = req.body; // Assuming customizations is an array of { title_id, option_ids }
+
+    if (!customizations || !quantity) return next(new AppError(401, 'Provide selected customizations and quantity'));
+
+    // Fetch item details to ensure it exists and get its price
+    const [item] = await pool.query(
+        `SELECT items.id as item_id, items.price as base_price, menus.restaurant_id
+         FROM items
+         JOIN categories ON items.category_id = categories.id
+         JOIN menus ON categories.menu_id = menus.id
+         WHERE items.id = ?`,
+        [item_id]
+    );
+
+    if (item.length === 0) {
+        return next(new AppError(404, "Item not found"));
+    }
+
+    const base_price = parseFloat(item[0]?.base_price);
+    if (!base_price || isNaN(base_price)) {
+        return next(new AppError(400, "Invalid or missing base price for the item"));
+    }
 
     // Get the user's cart
     const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
@@ -456,13 +562,145 @@ exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
     }
     const cart_id = cart[0].id;
 
+    let customization_price = 0;
+    let final_base_price = base_price;
+
+    // Validate customizations and calculate the customization price
+    for (const customization of customizations) {
+        const { title_id, option_ids } = customization;
+
+        // Validate title_id and fetch `make_price_option`
+        const [title] = await pool.query(
+            `SELECT make_price_option FROM customisation_title WHERE id = ? AND item_id = ?`,
+            [title_id, item_id]
+        );
+        if (title.length === 0) {
+            return next(new AppError(400, `Invalid title_id: ${title_id}`));
+        }
+
+        const make_price_option = title[0]?.make_price_option;
+
+        for (const option_id of option_ids) {
+            // Validate option_id and get additional_price
+            const [option] = await pool.query(
+                `SELECT additional_price FROM customisation_options WHERE id = ? AND title_id = ?`,
+                [option_id, title_id]
+            );
+            if (option.length === 0) {
+                return next(new AppError(400, `Invalid option_id: ${option_id}`));
+            }
+
+            const option_price = parseFloat(option[0]?.additional_price);
+            if (isNaN(option_price)) {
+                return next(new AppError(400, `Invalid or missing price for option_id: ${option_id}`));
+            }
+
+            if (make_price_option) {
+                final_base_price = option_price; // Override base price
+            } else {
+                customization_price += option_price; // Add option price
+            }
+        }
+    }
+
+    // Calculate the total price for the item
+    const item_total = (final_base_price + customization_price) * quantity;
+
+    console.log({ item_total, final_base_price, customization_price });
+
+    // Check if the item is already in the cart with matching customizations
+    const [cartItems] = await pool.query(
+        `SELECT ci.id as cart_item_id, ci.quantity 
+         FROM cart_items ci
+         LEFT JOIN cart_item_customizations cic ON ci.id = cic.cart_item_id
+         WHERE ci.item_id = ? AND ci.cart_id = ?`,
+        [item_id, cart_id]
+    );
+
+    let matchingCartItemId = null;
+    let customizationMatches = false;
+
+    for (const cartItem of cartItems) {
+        const cart_item_id = cartItem.cart_item_id;
+
+        const [existingCustomizations] = await pool.query(
+            `SELECT title_id, option_id
+             FROM cart_item_customizations
+             WHERE cart_item_id = ?`,
+            [cart_item_id]
+        );
+
+        customizationMatches =
+            existingCustomizations.length === customizations.length &&
+            customizations.every(cust => {
+                const { title_id, option_ids } = cust;
+                return existingCustomizations.some(
+                    exCust =>
+                        exCust.title_id === title_id &&
+                        option_ids.every(optId => optId === exCust.option_id)
+                );
+            });
+
+        if (customizationMatches) {
+            matchingCartItemId = cart_item_id;
+            break;
+        }
+    }
+
+    if (customizationMatches && matchingCartItemId) {
+        // Update quantity and price if customizations match
+        await pool.query(
+            `UPDATE cart_items 
+             SET quantity = quantity + ?, item_total = item_total + ? 
+             WHERE id = ?`,
+            [quantity, item_total, matchingCartItemId]
+        );
+    } else {
+        // Add new cart item and insert customizations
+        const [addItemCart] = await pool.query(
+            `INSERT INTO cart_items (item_id, quantity, cart_id, item_total) VALUES (?, ?, ?, ?)`,
+            [item_id, quantity, cart_id, item_total]
+        );
+        const cart_item_id = addItemCart.insertId;
+
+        for (const customization of customizations) {
+            const { title_id, option_ids } = customization;
+
+            for (const option_id of option_ids) {
+                await pool.query(
+                    `INSERT INTO cart_item_customizations (cart_item_id, title_id, option_id) VALUES (?, ?, ?)`,
+                    [cart_item_id, title_id, option_id]
+                );
+            }
+        }
+    }
+
+    res.status(200).json({
+        status: "success",
+        message: "Customizations handled successfully",
+    });
+});
+
+
+
+
+
+exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
+    const { id: cart_item_id } = req.params;
+    const user_id = req.user.id;
+
+    // Get the user's cart
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+    if (cart.length === 0) {
+        return next(new AppError(404, "Cart not found"));
+    }
+
     // Fetch the cart item to ensure it exists in the cart
-    const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND item_id = ?`, [cart_id, item_id]);
+    const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE id = ?`, [cart_item_id]);
     if (cartItems.length === 0) {
         return next(new AppError(404, "Item not found in the cart"));
     }
-    const cart_item_id = cartItems[0].id;
-
+    
     // Fetch the selected customizations for the cart item
     const fetchCustomizationsQuery = `
         SELECT
@@ -470,7 +708,8 @@ exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
             ct.title,
             cit.option_id,
             co.option_name,
-            co.additional_price
+            co.additional_price,
+            ct.selection_type
         FROM cart_item_customizations cit
         JOIN customisation_title ct ON cit.title_id = ct.id
         JOIN customisation_options co ON cit.option_id = co.id
@@ -482,57 +721,69 @@ exports.getSelectedCustomizations = asyncChoke(async (req, res, next) => {
         return next(new AppError(404, "No customizations found for this item"));
     }
 
-    // Organize the data
-    const result = {};
-    customizations.forEach(customization => {
-        const { title_id, option_id, title, option_name, additional_price } = customization;
+    
+const result = {};
+customizations.forEach(customization => {
+    const { title, option_id, option_name, additional_price , selection_type, title_id} = customization;
 
-        if (!result[title_id]) {
-            result[title_id] = {
-                title_id,
-                title,
-                options: []
-            };
-        }
+    if (!result[title]) {
+        result[title] = {
+            selection_type,
+            title_id,
+            title,
+            options: []
+        };
+    }
 
-        result[title_id].options.push({
-            option_id,
-            option_name,
-            additional_price
-        });
+    result[title].options.push({
+        option_id,
+        option_name,
+        additional_price
     });
+});
 
-    res.status(200).json({
-        status: 'success',
-        data: result
-    });
+res.status(200).json({
+    status: 'success',
+    data: result
+});
+
 });
 
 
 
+
+
 exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
-    const { id: item_id } = req.params;
-    const user_id = req.user.id;
-    const { customizations } = req.body; // Assuming customizations is an array of { title_id, option_ids }
+    const { id: cart_item_id } = req.params;
+    const { customizations, quantity } = req.body; // Assuming customizations is an array of { title_id, option_ids }
 
-    // Get the user's cart
-    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
-    if (cart.length === 0) {
-        return next(new AppError(404, "Cart not found"));
+    // Fetch the cart item details
+    const [cartItem] = await pool.query(
+        `SELECT ci.item_id, i.price as base_price
+         FROM cart_items ci
+         JOIN items i ON ci.item_id = i.id
+         WHERE ci.id = ?`,
+        [cart_item_id]
+    );
+
+    if (cartItem.length === 0) {
+        return next(new AppError(404, "Cart item not found"));
     }
-    const cart_id = cart[0].id;
 
-    // Fetch the cart item to ensure it exists in the cart
-    const [cartItems] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND item_id = ?`, [cart_id, item_id]);
-    if (cartItems.length === 0) {
-        return next(new AppError(404, "Item not found in the cart"));
+    const { item_id, base_price } = cartItem[0];
+    if (!base_price || isNaN(base_price)) {
+        return next(new AppError(400, "Invalid or missing base price for the item"));
     }
-    const cart_item_id = cartItems[0].id;
 
-    // Fetch the current customizations for the cart item
-    const [currentCustomizations] = await pool.query(`SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`, [cart_item_id]);
+    let customization_price = 0;
+    let final_base_price = parseFloat(base_price); // Start with the item's actual base price
 
     // Prepare sets for comparison
+    const [currentCustomizations] = await pool.query(
+        `SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`,
+        [cart_item_id]
+    );
+
     const currentCustomizationMap = new Map();
     currentCustomizations.forEach(cust => {
         if (!currentCustomizationMap.has(cust.title_id)) {
@@ -545,23 +796,43 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
     for (const customization of customizations) {
         const { title_id, option_ids } = customization;
 
-        // Validate title_id
-        const [title] = await pool.query(`SELECT * FROM customisation_title WHERE id = ? AND item_id = ?`, [title_id, item_id]);
+        // Validate title_id and fetch `make_price_option`
+        const [title] = await pool.query(
+            `SELECT make_price_option FROM customisation_title WHERE id = ? AND item_id = ?`,
+            [title_id, item_id]
+        );
         if (title.length === 0) {
             return next(new AppError(400, `Invalid title_id: ${title_id}`));
         }
 
-        // Add new or update existing options
+        const make_price_option = title[0]?.make_price_option;
+
         for (const option_id of option_ids) {
-            // Validate option_id
-            const [option] = await pool.query(`SELECT * FROM customisation_options WHERE id = ? AND title_id = ?`, [option_id, title_id]);
+            // Validate option_id and fetch additional_price
+            const [option] = await pool.query(
+                `SELECT additional_price FROM customisation_options WHERE id = ? AND title_id = ?`,
+                [option_id, title_id]
+            );
             if (option.length === 0) {
                 return next(new AppError(400, `Invalid option_id: ${option_id}`));
             }
 
-            // Check if the option already exists in the current customizations
+            const option_price = parseFloat(option[0]?.additional_price);
+            if (isNaN(option_price)) {
+                return next(new AppError(400, `Invalid or missing price for option_id: ${option_id}`));
+            }
+
+            if (make_price_option) {
+                // Override base price with the option's price
+                final_base_price = option_price;
+            } else {
+                // Add option price to customization price
+                customization_price += option_price;
+            }
+
+            // Check if the option already exists
             if (currentCustomizationMap.has(title_id) && currentCustomizationMap.get(title_id).has(option_id)) {
-                currentCustomizationMap.get(title_id).delete(option_id); // Remove from current set to track which to delete later
+                currentCustomizationMap.get(title_id).delete(option_id); // Mark for no deletion
             } else {
                 // Insert new customization option
                 const insertQuery = `INSERT INTO cart_item_customizations (cart_item_id, title_id, option_id) VALUES (?, ?, ?)`;
@@ -578,10 +849,21 @@ exports.updateItemCustomizations = asyncChoke(async (req, res, next) => {
         }
     }
 
+    // Calculate the updated total price
+    const updated_item_total = (final_base_price + customization_price) * quantity;
+    // console.log(updated_item_total)
+    // Update the cart item's total price
+    await pool.query(
+        `UPDATE cart_items SET item_total = ?, quantity = ? WHERE id = ?`,
+        [updated_item_total, quantity, cart_item_id]
+    );
+
     res.status(200).json({
         status: 'success',
-        message: 'Customizations updated successfully'
+        message: 'Customizations updated successfully',
+        item_total: updated_item_total
     });
 });
+
 
 

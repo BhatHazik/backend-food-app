@@ -102,4 +102,95 @@ exports.approveDeleveryBoys = async(req, res)=>{
 
 
 
+exports.createMainCategory = asyncChoke(async (req, res, next) => {
+  const { name, image_url } = req.body;
+
+  // Validate input
+  if (!name || !image_url) {
+    return res.status(400).json({
+      status: "Error",
+      message: "Name and image URL are required",
+    });
+  }
+
+  const query = `
+    INSERT INTO main_categories (name, image_url)
+    VALUES (?, ?)
+  `;
+
+  const [result] = await pool.query(query, [name, image_url]);
+
+  res.status(201).json({
+    status: "Success",
+    data: {
+      id: result.insertId,
+      name,
+      image_url,
+    },
+  });
+});
+
+
+
+
+exports.updateMainCategory = asyncChoke(async (req, res, next) => {
+  const { id } = req.params;
+  const { name, image_url } = req.body;
+
+  // Validate input
+  if (!name && !image_url) {
+    return res.status(400).json({
+      status: "Error",
+      message: "At least one field (name or image URL) is required to update",
+    });
+  }
+
+  const query = `
+    UPDATE main_categories
+    SET name = COALESCE(?, name), image_url = COALESCE(?, image_url), updated_at = CURRENT_TIMESTAMP
+    WHERE id = ?
+  `;
+
+  const [result] = await pool.query(query, [name, image_url, id]);
+
+  if (result.affectedRows === 0) {
+    return res.status(404).json({
+      status: "Error",
+      message: "Category not found",
+    });
+  }
+
+  res.status(200).json({
+    status: "Success",
+    message: "Category updated successfully",
+  });
+});
+
+
+
+
+
+exports.deleteMainCategory = asyncChoke(async (req, res, next) => {
+  const { id } = req.params;
+
+  const query = `
+    DELETE FROM main_categories
+    WHERE id = ?
+  `;
+
+  const [result] = await pool.query(query, [id]);
+
+  if (result.affectedRows === 0) {
+    return res.status(404).json({
+      status: "Error",
+      message: "Category not found",
+    });
+  }
+
+  res.status(200).json({
+    status: "Success",
+    message: "Category deleted successfully",
+  });
+});
+
 

@@ -1,9 +1,11 @@
 const express = require('express');
 const userController = require('../Controllers/userController');
 const userAuth = require('../Controllers/authController');
-const { initaiteWalletRefill } = require('../Utils/razorpay');
+const { initaiteWalletRefill, verifyPaymentOrder } = require('../Utils/razorpay');
 
 const router = express.Router();
+
+router.post("/verifyPayment", userController.PurchaseVerify);
 
 // crud for users
 router.post('/createUser', userController.createUserOTP);

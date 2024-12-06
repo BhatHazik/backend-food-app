@@ -5,11 +5,12 @@ const AppError = require("../Utils/error");
 // READ All Menus by restaurant id
 exports.getMenuById = asyncChoke(async (req, res, next) => {
   const { id, latitude, longitude } = req.params;
+  const { type } = req.query;
 
   if (!latitude || !longitude) {
     return next(new AppError(400, "Location coordinates not found!"));
   }
-  
+
   let restaurantDetails = {};
   const [restaurantCheck] = await pool.query(
     `SELECT res.restaurant_name,
@@ -36,15 +37,14 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     return next(new AppError(404, "Restaurant not found!"));
   }
 
-  // Extract restaurant details and address
   restaurantDetails = {
     restaurant_name: restaurantCheck[0].restaurant_name,
     street: restaurantCheck[0].street,
     rating_count: restaurantCheck[0].rating_count,
     rating: restaurantCheck[0].rating,
-    categories: restaurantCheck.map(row => row.category),
+    categories: restaurantCheck.map((row) => row.category),
     restaurant_latitude: restaurantCheck[0].restaurant_latitude,
-    restaurant_longitude: restaurantCheck[0].restaurant_longitude
+    restaurant_longitude: restaurantCheck[0].restaurant_longitude,
   };
 
   const radius = 10; // Radius in kilometers
@@ -52,10 +52,8 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
   const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
   const bufferTime = 5; // Buffer time in minutes for range
 
-  // Haversine formula to calculate distance
   const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(${restaurantDetails.restaurant_latitude})) * cos(radians(${restaurantDetails.restaurant_longitude}) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(${restaurantDetails.restaurant_latitude}))))`;
 
-  // Query to check if the restaurant is within the radius
   const radiusQuery = `
     SELECT COUNT(*) AS count, 
     ${haversine} AS distance
@@ -67,23 +65,18 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
   `;
 
   try {
-    // Execute the query to check if the restaurant is within the radius
     const [radiusRows] = await pool.query(radiusQuery, [id, true, radius]);
 
-    // Check if restaurant is not found or not within the radius
     if (radiusRows.length === 0 || radiusRows[0].count === 0) {
       return next(new AppError(404, "Restaurant not found or out of delivery range!"));
     }
 
-    // Calculate delivery time
     const distance = radiusRows[0].distance;
     const travelTime = distance / averageSpeed; // in minutes
     const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
     const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-
     const deliveryTime = `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`;
 
-    // Proceed with fetching menu and items as before
     const menuIdQuery = "SELECT id FROM menus WHERE restaurant_id = ?";
     const [menuRows] = await pool.query(menuIdQuery, [id]);
 
@@ -95,36 +88,36 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     const categoriesQuery = "SELECT * FROM categories WHERE menu_id = ?";
     const [categoriesRows] = await pool.query(categoriesQuery, [menuId]);
 
-    // Initialize an empty object with "TopSeller" at the top
     const menuData = { TopSeller: [] };
     let topSellerItems = [];
 
-    // Iterate through categories and fetch items for each category
     for (let category of categoriesRows) {
       const categoryId = category.id;
-      const itemsQuery = "SELECT * FROM items WHERE category_id = ?";
-      const [itemsRows] = await pool.query(itemsQuery, [categoryId]);
+
+      // Filter items by type (veg or non-veg) if 'type' query parameter is provided
+      const itemsQuery = type
+        ? "SELECT * FROM items WHERE category_id = ? AND type = ?"
+        : "SELECT * FROM items WHERE category_id = ?";
+
+      const [itemsRows] = await pool.query(
+        itemsQuery,
+        type ? [categoryId, type] : [categoryId]
+      );
 
       if (itemsRows.length === 0) {
-        // Handle no items in the category
         menuData[category.category] = {
           message: "No items found in this category",
         };
       } else {
-        // Sort by order_count in descending order and get up to 10 items
         const topItems = itemsRows
           .sort((a, b) => b.order_count - a.order_count)
           .slice(0, 10);
 
-        // Collect top seller items for all categories
         topSellerItems = [...topSellerItems, ...topItems].slice(0, 10);
-
-        // Format items for the current category
         menuData[category.category] = topItems;
       }
     }
 
-    // Add the top seller items to "TopSeller" after all categories are processed
     menuData.TopSeller = topSellerItems;
 
     res.status(200).json({
@@ -135,7 +128,7 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
         restaurantName: restaurantDetails.restaurant_name,
         ratingCount: restaurantDetails.rating_count,
         street: restaurantDetails.street,
-        deliveryTime: deliveryTime, // Add delivery time to response
+        deliveryTime: deliveryTime,
         categories: restaurantDetails.categories.slice(0, 2),
         menu: menuData,
       },
@@ -145,3 +138,99 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     next(new AppError(500, "Internal server error"));
   }
 });
+
+
+
+
+exports.searchItemsInRestaurant = asyncChoke(async (req, res, next) => {
+  const { id } = req.params; // Restaurant ID
+  const { search } = req.query;
+
+  // Validate Restaurant ID
+  if (!id) {
+    return next(new AppError(400, "Restaurant ID is required!"));
+  }
+
+  // If search is empty or too short, return an empty array
+  if (!search || search.trim().length < 2) {
+    return res.status(200).json({
+      status: "Success",
+      data: [],
+    });
+  }
+
+  const searchQuery = `%${search}%`;
+
+  // SQL query with Full-Text Search and fallback to LIKE/SOUNDEX
+  const itemsQuery = `
+    SELECT 
+      items.id AS item_id,
+      items.name AS item_name,
+      items.price,
+      items.description,
+      items.type,
+      items.order_count,
+      cat.category AS category_name
+    FROM 
+      items
+    INNER JOIN 
+      categories AS cat ON items.category_id = cat.id
+    INNER JOIN 
+      menus AS menu ON cat.menu_id = menu.id
+    WHERE 
+      menu.restaurant_id = ? 
+      AND (
+        MATCH(items.name) AGAINST(?) 
+        OR MATCH(cat.category) AGAINST(?)
+        OR items.name LIKE ?
+        OR SOUNDEX(items.name) = SOUNDEX(?)
+      )
+    ORDER BY 
+      items.order_count DESC
+    LIMIT 50;
+  `;
+
+  try {
+    // Execute the query with parameterized inputs
+    const [items] = await pool.query(itemsQuery, [
+      id,
+      search,
+      search,
+      searchQuery,
+      search,
+    ]);
+
+    // If no items are found, return an empty response
+    if (items.length === 0) {
+      return res.status(200).json({
+        status: "Success",
+        data: [],
+      });
+    }
+
+    // Transform the result data
+    const formattedItems = items.map((item) => ({
+      item_id: item.item_id,
+      name: item.item_name,
+      price: parseFloat(item.price).toFixed(2), // Ensure consistent decimal formatting
+      description: item.description || "No description available",
+      type: item.type,
+      order_count: item.order_count,
+      category: item.category_name,
+    }));
+
+    res.status(200).json({
+      status: "Success",
+      data: formattedItems,
+    });
+  } catch (error) {
+    console.error("Error fetching items:", error);
+    next(new AppError(500, "Internal server error"));
+  }
+});
+
+
+
+
+
+

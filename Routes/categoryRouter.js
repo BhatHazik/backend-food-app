@@ -1,11 +1,13 @@
 const express = require('express');
-const CategoriesController = require('../Controllers/categoriesController');
-const sellerAuth = require('../Controllers/restaurantAuthController')
+const { addCategoryById, getAllCategories, DeleteCategory, getAllMainCategories } = require('../Controllers/categoriesController');
+const {protect} = require('../Controllers/restaurantAuthController')
+const userAuth = require('../Controllers/authController');
 const router = express.Router();
 
 
-router.post('/', sellerAuth.protect, CategoriesController.addCategoryById);
-router.get('/',sellerAuth.protect, CategoriesController.getAllCategories);
-router.delete('/delete/:categoryId', sellerAuth.protect, CategoriesController.DeleteCategory)
+router.post('/', protect, addCategoryById);
+router.get('/',protect, getAllCategories);
+router.delete('/delete/:categoryId', protect, DeleteCategory);
+router.get('/getMainCategories', userAuth.protect, getAllMainCategories);
 
 module.exports = router;

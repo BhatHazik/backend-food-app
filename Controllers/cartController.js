@@ -10,7 +10,6 @@ const AppError = require('../Utils/error');
 
 
 // add item in cart
-
 exports.addItemCart = asyncChoke(async (req, res, next) => {
     const { id: item_id } = req.params;  // Extract item_id from request parameters
     const { quantity } = req.body;  // Extract quantity from request body
@@ -119,54 +118,125 @@ exports.removeItemsFromCartAndAddNew = asyncChoke(async(req,res,next)=>{
 
 
 
-// see items in cart
 exports.getItemsCart = asyncChoke(async (req, res, next) => {
     const user_id = req.user.id;
-    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
-    const cart_id = cart[0].id;
-    // Fetch cart items for the given user ID
-    const query = `
-        SELECT 
-            cart_items.id,
-            cart_items.item_id,
-            cart_items.quantity,
-            items.name,
-            items.price,
-            items.type
-        FROM cart_items
-        JOIN items ON cart_items.item_id = items.id
-        WHERE cart_items.cart_id = ?
-    `;
-    const [rows] = await pool.query(query, [cart_id]);
 
-    if (!rows.length) {
-        return next(new AppError(404, "No items found in the cart for the given user"));
+    // Fetch the user's cart
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+    if (cart.length === 0) {
+        return next(new AppError(404, "Cart not found"));
+    }
+    const cart_id = cart[0].id;
+
+    // Fetch cart items
+    const fetchCartItemsQuery = `
+        SELECT 
+            ci.id as cart_item_id, 
+            ci.item_id, 
+            ci.quantity, 
+            i.name as item_name, 
+            i.price as item_price,
+            ci.item_total 
+        FROM cart_items ci
+        JOIN items i ON ci.item_id = i.id
+        WHERE ci.cart_id = ?
+    `;
+    const [cartItems] = await pool.query(fetchCartItemsQuery, [cart_id]);
+
+    if (cartItems.length === 0) {
+        return res.status(200).json({
+            status: 'success',
+            data: []
+        });
     }
 
+    // Fetch and attach customizations for each cart item
+    const fetchCustomizationsQuery = `
+        SELECT
+            cit.cart_item_id,
+            cit.title_id,
+            ct.title,
+            cit.option_id,
+            co.option_name,
+            co.additional_price,
+            ct.selection_type
+        FROM cart_item_customizations cit
+        JOIN customisation_title ct ON cit.title_id = ct.id
+        JOIN customisation_options co ON cit.option_id = co.id
+        WHERE cit.cart_item_id IN (?)
+    `;
+    const cartItemIds = cartItems.map(item => item.cart_item_id);
+    const [customizations] = await pool.query(fetchCustomizationsQuery, [cartItemIds]);
+
+    // Structure customizations for easier access
+    const customizationsByCartItem = {};
+    customizations.forEach(customization => {
+        const { cart_item_id, title, option_id, option_name, additional_price, selection_type, title_id } = customization;
+
+        if (!customizationsByCartItem[cart_item_id]) {
+            customizationsByCartItem[cart_item_id] = {};
+        }
+
+        if (!customizationsByCartItem[cart_item_id][title]) {
+            customizationsByCartItem[cart_item_id][title] = {
+                selection_type,
+                title,
+                title_id,
+                options: []
+            };
+        }
+
+        customizationsByCartItem[cart_item_id][title].options.push({
+            option_id,
+            option_name,
+            additional_price
+        });
+    });
+
+    // Attach customizations to cart items
+    const result = cartItems.map(item => ({
+        ...item,
+        customizations: customizationsByCartItem[item.cart_item_id] || {}
+    }));
+
     res.status(200).json({
-        status: "success",
-        rows
+        status: 'success',
+        data: result
     });
 });
 
 
 
 
-exports.itemQuantity = async(req, res) =>{
+
+
+
+
+exports.itemQuantity = asyncChoke(async(req, res, next) =>{
     try{
     const user_id = req.user.id;
     const {quantity} = req.body;
-    const { id: item_id } = req.params;
+    const { id: cart_item_id } = req.params;
     const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
     const cart_id = cart[0].id;
+    const [check] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND id = ?`,[cart_id,cart_item_id]);
+    if(check.length < 1){
+        return next(new AppError(404, "This cart item does not belong to your cart"));
+    }
     if(quantity < 1){
-      const removeQuery = await pool.query(`DELETE FROM cart_items WHERE item_id = ? AND cart_id = ?`, [item_id, cart_id]);
+        const [cart_item] = await pool.query(`SELECT * FROM cart_items_customisation WHERE cart_item_id = ?`,[cart_item_id]);
+        if(cart_item.length > 0){
+            return next(new AppError(400, "This " ));
+        }
+      const removeQuery = await pool.query(`DELETE FROM cart_items WHERE id = ?`, [cart_item_id]);
       return res.json({
         status :"success",
         message: "your item has been removed successfully"
       })
     }
-    const [itemQuantity] = await pool.query(`UPDATE cart_items SET quantity = ? WHERE item_id = ? AND cart_id = ?`, [quantity, item_id, cart_id]);
+    const item_total = check[0].item_total * quantity;
+    console.log(item_total);
+    const [itemQuantity] = await pool.query(`UPDATE cart_items SET quantity = ?, item_total = ? WHERE id = ?`, [quantity, item_total, cart_item_id]);
     
     res.json({
         status:"success",
@@ -175,6 +245,7 @@ exports.itemQuantity = async(req, res) =>{
     }catch(err){
         console.log(err);
     }
-}
+})
+
 
 

@@ -1,9 +1,23 @@
 const express = require('express');
-const OrdersController = require('../Controllers/ordersController');
+const { createOrder, getOrderDetails, getOrdersById, getAllOrdersRestaurant } = require('../Controllers/ordersController');
 const userAuth = require('../Controllers/authController');
+const { protect } = require('../Controllers/restaurantAuthController');
 const router = express.Router();
 
-router.post('/placeOrder/:distance/:delivery_tip/:code', userAuth.protect,OrdersController.createOrder);
-router.get('/user/getOrderDetails', userAuth.protect,OrdersController.getOrderDetails);
+// ----------------------------------------------------------------
+// User Routes
+// ----------------------------------------------------------------
+router.post('/placeOrder', userAuth.protect, createOrder);
+router.get('/user/getOrderDetails', userAuth.protect, getOrderDetails);
+router.get('/getOrders/:id', userAuth.protect, getOrdersById);
+
+
+
+// ----------------------------------------------------------------
+// Restaurant Routes
+// ----------------------------------------------------------------
+
+router.get('/restaurantOrders', protect, getAllOrdersRestaurant);
+
 
 module.exports = router;

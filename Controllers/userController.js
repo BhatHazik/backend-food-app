@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const { isValidPhoneNumber } = require("../Utils/utils");
+const { verifyPaymentOrder } = require("../Utils/razorpay");
 
 // create or signup with otp
 
@@ -421,3 +422,21 @@ exports.editAddress = asyncChoke(async (req, res, next) => {
     return next(new AppError(500, "Internal Server Got An Error", err));
   }
 });
+
+
+
+exports.PurchaseVerify = asyncChoke(async(req, res, next) => {
+  const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+  await verifyPaymentOrder(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+  console.log(verifyPaymentOrder);
+  if((verifyPaymentOrder.status === "captured") || !verifyPaymentOrder){
+    return res.redirect("http://localhost:5173/paymentSuccess");
+  }
+  else{
+    return res.redirect("http://localhost:5173/paymentFailed");
+  }
+})
+
+
+
+

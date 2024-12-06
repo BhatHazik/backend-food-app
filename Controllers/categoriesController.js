@@ -145,3 +145,18 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
     }
   });
   
+
+  exports.getAllMainCategories = asyncChoke(async (req, res, next) => {
+    const query = `
+      SELECT id, name, image_url, created_at, updated_at
+      FROM main_categories
+    `;
+    let rows 
+    const [dataRows] = await pool.query(query);
+    rows = dataRows[0]
+    res.status(200).json({
+      status: "Success",
+      data: {id : rows.id, name:rows.name, image_url:rows.image_url},
+    });
+  });
+  

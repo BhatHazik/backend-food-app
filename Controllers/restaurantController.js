@@ -5,17 +5,13 @@ const jwt = require("jsonwebtoken");
 const { isValidPhoneNumber } = require("../Utils/utils");
 // CREATE Restaurant
 exports.createRestaurant = asyncChoke(async (req, res, next) => {
+  const {id:restaurant_id, approved} = req.user;
+  console.log(req.body);
   const {
     owner_name,
     owner_phone_no,
     owner_email,
     restaurant_name,
-    pan_no,
-    GSTIN_no,
-    FSSAI_no,
-    outlet_type,
-    bank_IFSC,
-    bank_account_no,
     street,
     landmark,
     area,
@@ -41,12 +37,6 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
     !owner_phone_no ||
     !owner_email ||
     !restaurant_name ||
-    !pan_no ||
-    !GSTIN_no ||
-    !FSSAI_no ||
-    !outlet_type ||
-    !bank_IFSC ||
-    !bank_account_no ||
     !street ||
     !landmark ||
     !area ||
@@ -67,51 +57,51 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
   ) {
     return next(new AppError(400, "All fields are required"));
   }
+  // console.log(req.body);
 
   const LoginNumber = req.user.owner_phone_no;
+  console.log(LoginNumber,owner_phone_no);
   if (LoginNumber !== owner_phone_no) {
     return next(new AppError(404, "Please enter same number given at login"));
   }
 
-  const [checkQuery1] = await pool.query(
-    `SELECT * FROM restaurants WHERE GSTIN_no = ? OR FSSAI_no = ? OR pan_no = ? AND approved = ?`,
-    [GSTIN_no, FSSAI_no, pan_no, false]
-  );
+  
+  
+  // const [docExists] = await pool.query(`SELECT * FROM restaurant_docs WHERE restaurant_id = ?`, [restaurant_id]);
+  // if(docExists.length > 0){
+  //   return next(new AppError(409, "Documents already exists"));
+  // }
+ 
 
-  if (checkQuery1.length > 0) {
-    return next(
-      new AppError(409, "Given Documents are in a pending approval check")
-    );
-  }
+  
+// console.log(approved);
+//   if (approved === 0) {
+//     return next(
+//       new AppError(409, "This Restaurant is in a pending approval check")
+//     );
+//   }
+//   if(approved === 1) {
+//     return next(new AppError(409, "Restaurant already has been approved"));
+//   }
 
   const query = `UPDATE restaurants SET 
     owner_name = ?, 
     owner_email = ?, 
-    restaurant_name = ?, 
-    pan_no = ?, 
-    GSTIN_no = ?, 
-    FSSAI_no = ?, 
-    outlet_type = ?, 
-    bank_IFSC = ?, 
-    bank_account_no = ? 
+    restaurant_name = ?
   WHERE owner_phone_no = ?
   `;
   const values = [
     owner_name,
     owner_email,
     restaurant_name,
-    pan_no,
-    GSTIN_no,
-    FSSAI_no,
-    outlet_type,
-    bank_IFSC,
-    bank_account_no,
     owner_phone_no,
   ];
   const [result] = await pool.query(query, values);
   if (result.affectedRows === 0) {
     return next(new AppError(401, "error while creating your restaurant"));
   }
+
+
 
   
 
@@ -130,69 +120,104 @@ exports.createRestaurant = asyncChoke(async (req, res, next) => {
   //   created_at: new Date(),
   //   updated_at: new Date(),
   // };
-  // const [checkQuery] = await pool.query(
-  //   `SELECT * FROM restaurants WHERE owner_phone_no = ?`,
-  //   [owner_phone_no]
-  // );
-  // const restaurant_id = checkQuery[0].id;
 
-  // const workingQuery = await pool.query(
-  //   `INSERT INTO restaurants_working (monday,
-  //    tuesday,
-  //    wednesday,
-  //    thursday,
-  //    friday,
-  //    saturday,
-  //    sunday,
-  //    opening_time,
-  //    closing_time,
-  //    restaurant_id) VALUES (
-  //      ?,?,?,?,?,?,?,?,?,?
-  //    )`,
-  //   [
-  //     monday,
-  //     tuesday,
-  //     wednesday,
-  //     thursday,
-  //     friday,
-  //     saturday,
-  //     sunday,
-  //     opening_time,
-  //     closing_time,
-  //     restaurant_id,
-  //   ]
-  // );
-  // const addressQuery = await pool.query(
-  //   `INSERT INTO restaurantaddress (street,
-  //   landmark,
-  //   area,
-  //   pincode,
-  //   city,
-  //   state,
-  //   latitude,
-  //   longitude,
-  //   restaurant_id) VALUES(
-  //     ?,?,?,?,?,?,?,?,?
-  //   )`,
-  //   [
-  //     street,
-  //     landmark,
-  //     area,
-  //     pincode,
-  //     city,
-  //     state,
-  //     latitude,
-  //     longitude,
-  //     restaurant_id,
-  //   ]
-  // );
+
+
+
+  const workingQuery = await pool.query(
+    `INSERT INTO restaurants_working (monday,
+     tuesday,
+     wednesday,
+     thursday,
+     friday,
+     saturday,
+     sunday,
+     opening_time,
+     closing_time,
+     restaurant_id) VALUES (
+       ?,?,?,?,?,?,?,?,?,?
+     )`,
+    [
+      monday,
+      tuesday,
+      wednesday,
+      thursday,
+      friday,
+      saturday,
+      sunday,
+      opening_time,
+      closing_time,
+      restaurant_id,
+    ]
+  );
+  const addressQuery = await pool.query(
+    `INSERT INTO restaurantaddress (street,
+    landmark,
+    area,
+    pincode,
+    city,
+    state,
+    latitude,
+    longitude,
+    restaurant_id) VALUES(
+      ?,?,?,?,?,?,?,?,?
+    )`,
+    [
+      street,
+      landmark,
+      area,
+      pincode,
+      city,
+      state,
+      latitude,
+      longitude,
+      restaurant_id,
+    ]
+  );
 
   res.status(201).json({
     status: "Success",
     message:
-      "Your restaurant's checking approval is under process. It may take up to 6 - 7 working days",
+      "Restaurant Information was successfully submitted",
   });
 });
+
+
+
+exports.createRestaurantDocs = asyncChoke(async(req, res, next)=>{
+  const { pan_no, GSTIN_no, FSSAI_no, outlet_type, bank_IFSC, bank_account_no } = req.body;
+  const {id:restaurant_id} = req.user;
+  console.log(req.body);
+  try{
+    if(!pan_no ||!GSTIN_no ||!FSSAI_no ||!outlet_type || !bank_IFSC || !bank_account_no){
+      return next(new AppError(400, "All fields are required"));
+    }
+    // const [docExists] = await pool.query(`SELECT * FROM restaurant_docs WHERE restaurant_id = ?`, [restaurant_id]);
+    // if(docExists.length > 0){
+    //   return next(new AppError(409, "Documents already exists"));
+    // }
+    const query = `INSERT INTO restaurant_docs (pan_no, GSTIN_no, FSSAI_no, outlet_type, restaurant_id, bank_IFSC, bank_account_no) VALUES(?,?,?,?,?,?,?)`;
+  const values = [pan_no, GSTIN_no, FSSAI_no, outlet_type, restaurant_id, bank_IFSC, bank_account_no];
+  const [result] = await pool.query(query, values);
+  if(result.affectedRows === 0){
+    return next(new AppError(401, "error while creating your restaurant documents"));
+  }
+  const [updateApproval] = await pool.query(`UPDATE restaurants SET approved = ? WHERE id = ?`,[false, restaurant_id]);
+  if(updateApproval.affectedRows === 0){
+    return next(new AppError(401, "error while updating restaurant approval status"));
+  }
+  res.status(201).json({
+    status: "success",
+    message: "Restaurant Documents were successfully submitted",
+  });
+  }
+  catch(err){
+  
+    return next(new AppError(401, err));
+  }
+});
+
+
 
 // READ All Approved Restaurants
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
@@ -235,7 +260,7 @@ exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
 
 
   const [rows, fields] = await pool.query(query, [radius]);
-// console.log(rows);
+console.log(rows);
   if (rows.length > 0) {
     const data = rows.map((row) => {
       const travelTime = row.distance / averageSpeed; // Calculate travel time
@@ -299,7 +324,6 @@ exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
   ORDER BY 
     avg_rating DESC;
 `;
-
 
   const [rows, fields] = await pool.query(query, [radius]);
 
@@ -401,8 +425,14 @@ exports.getAllPopularRestaurants = asyncChoke(async (req, res, next) => {
   }
 });
 
-exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
-  const { latitude, longitude, categoryName } = req.params;
+exports.getAllRestaurantsBySearch = asyncChoke(async (req, res, next) => {
+  const { latitude, longitude, search } = req.query;
+
+  // If search is empty or less than 2 characters, return an empty array
+  if (!search || search.trim().length < 2) {
+    return res.status(200).json({status: "No results found",
+      data: [],});
+  }
 
   const radius = 10; // Radius in kilometers
   const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
@@ -412,7 +442,7 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
   // Haversine formula to calculate distance
   const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
 
-  // Query to get restaurants within the radius of the user's location and their average ratings, filtered by category
+  // Fuzzy search logic with LIKE and SOUNDEX for similar terms
   const query = `
     SELECT 
       restaurants.id AS restaurant_id, 
@@ -432,14 +462,26 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
     WHERE 
       restaurants.approved = true 
       AND ${haversine} <= ?
-      AND categories.category = ?
+      AND (
+        restaurants.restaurant_name LIKE ? 
+        OR categories.category LIKE ? 
+        OR SOUNDEX(restaurants.restaurant_name) = SOUNDEX(?)
+        OR SOUNDEX(categories.category) = SOUNDEX(?)
+      )
     GROUP BY 
       restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
-    ORDER BY 
-      avg_rating DESC;
   `;
 
-  const [rows, fields] = await pool.query(query, [radius, categoryName]);
+  // Use `%search%` for pattern matching and also pass `search` for SOUNDEX
+  const searchPattern = `%${search}%`;
+
+  const [rows, fields] = await pool.query(query, [
+    radius,
+    searchPattern,
+    searchPattern,
+    search,
+    search,
+  ]);
 
   if (rows.length > 0) {
     const data = rows.map((row) => {
@@ -463,14 +505,14 @@ exports.getAllRestaurantsByCategories = asyncChoke(async (req, res, next) => {
       data,
     });
   } else {
-    return next(
-      new AppError(
-        404,
-        "Restaurants not found with this category in your location!"
-      )
-    );
+    return res.status(404).json({
+      status: "No results found",
+      data: [],
+    });
   }
 });
+
+
 
 // exports.getAllRestaurantsByCategories = asyncChoke(async(req,res,next)=>{
 //   const {categoryName} = req.body;
@@ -553,6 +595,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
 
   const otp = generateOTP();
   let { phone_no } = req.body;
+  console.log(phone_no)
   phone_no = String(phone_no).trim();
 
  

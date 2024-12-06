@@ -1,12 +1,12 @@
 const express = require('express');
-const menuController = require('../Controllers/menuController');
+const { getMenuById, searchItemsInRestaurant } = require('../Controllers/menuController');
 const userAuth = require('../Controllers/authController')
 const router = express.Router();
 
-// router.post('/:id', menuController.createMenu);
-// router.get('/:id', menuController.getAllMenus);
-router.get('/:id/:latitude/:longitude',userAuth.protect, menuController.getMenuById);
-// router.patch('/:id', menuController.updateMenuItem);
-// router.delete('/:id', menuController.deleteMenuItem);
+// router.post('/:id', createMenu);
+router.get('/getItemsBySearch/:id', searchItemsInRestaurant);
+router.get('/:id/:latitude/:longitude',userAuth.protect, getMenuById);
+// router.patch('/:id', updateMenuItem);
+// router.delete('/:id', deleteMenuItem);
 
 module.exports = router;

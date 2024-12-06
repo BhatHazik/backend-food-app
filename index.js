@@ -14,14 +14,14 @@ const offerRouter = require('./Routes/offerRouter');
 const deliveryBoyRouter = require('./Routes/deiveryBoyRouter');
 const cartRouter = require('./Routes/cartRouter');
 const userBillRouter = require('./Routes/userBillRouter');
-const ordersRouter = require('./Routes/ordersRouter')
+const ordersRouter = require('./Routes/ordersRouter');
 const cors = require('cors');
 const { sendErrorRes } = require('./Controllers/errorController');
 const app = express();
 
 const allowedOrigins = [
   "http://localhost:5173",    // React web application
-  "http://localhost:8081"     // React Native application (adjust as needed)
+  "http://localhost:8081"     // React Native application 
 ];
 
 app.use(cors({
@@ -32,8 +32,7 @@ app.use(cors({
 app.options("*", cors());
 
 app.use(bodyParser.json());
-
-
+app.use(bodyParser.urlencoded({ extended: true }));
 
 
 // Routes

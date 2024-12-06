@@ -1,4 +1,4 @@
-const db = require('../Config/database');
+const {pool} = require('../Config/database');
 const { asyncChoke } = require('../Utils/asyncWrapper');
 const AppError = require('../Utils/error');
 
@@ -8,7 +8,7 @@ exports.createOffer = asyncChoke(async (req, res, next) => {
 
   try {
       // Insert offer into database
-      const [result] = await db.query(
+      const [result] = await pool.query(
           `INSERT INTO offers (title, description, discount_type, discount_value, minimum_order_amount, maximum_discount_amount, code, terms_and_conditions, expiring_at) 
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [title, description, discount_type, discount_value, minimum_order_amount, maximum_discount_amount, code, terms_and_conditions, expiring_at]
@@ -34,21 +34,21 @@ exports.createOffer = asyncChoke(async (req, res, next) => {
 exports.acceptOfferSeller = asyncChoke(async (req, res, next) => {
   const restaurant_id = req.user.id;  // Assuming req.user.id contains restaurant_id
   const { offer_id } = req.params;
-  console.log(restaurant_id)
+  // console.log(restaurant_id)
   try {
       // Check if the offer_id exists in the offers table
-      const [offer] = await db.query(`SELECT * FROM offers WHERE id = ?`, [offer_id]);
+      const [offer] = await pool.query(`SELECT * FROM offers WHERE id = ?`, [offer_id]);
       if (offer.length === 0) {
           return next(new AppError(404, 'Offer not found'));
       }
       const acceptedOfferQuery = `SELECT * FROM accepted_offer_seller WHERE restaurant_id = ? AND offer_id = ?`
       const acceptedofferValue = [restaurant_id , offer_id]
-      const [alreadyAccepted] = await db.query(acceptedOfferQuery,acceptedofferValue);
+      const [alreadyAccepted] = await pool.query(acceptedOfferQuery,acceptedofferValue);
       if(alreadyAccepted.length === 1){
         return next(new AppError(409, "Offer already accepted by this restaurant!"));
       }
       // Insert into accepted_offer_seller table
-      const [result] = await db.query(
+      const [result] = await pool.query(
           `INSERT INTO accepted_offer_seller (offer_id, restaurant_id) VALUES (?, ?)`,
           [offer_id, restaurant_id]
       );
@@ -77,7 +77,7 @@ exports.getOffersFromRestaurants = asyncChoke(async (req, res, next) => {
           JOIN accepted_offer_seller aos ON o.id = aos.offer_id
           WHERE aos.restaurant_id = ?
       `;
-      const [rows] = await db.query(query, [restaurant_id]);
+      const [rows] = await pool.query(query, [restaurant_id]);
 
       if (rows.length === 0) {
           return next(new AppError(404, 'No offers found for the given restaurant'));
@@ -102,7 +102,7 @@ exports.getOffers = async (req, res) => {
         SELECT * FROM offers
       `;
   
-      const [rows] = await db.execute(query);
+      const [rows] = await pool.execute(query);
   
       res.status(200).json({
         status: 'Success',
@@ -121,7 +121,7 @@ exports.getOffers = async (req, res) => {
     try {
       const { offer_id } = req.params;
       const query = 'SELECT * FROM offers WHERE id = ?';
-      const [offers] = await db.execute(query, [offer_id]);
+      const [offers] = await pool.execute(query, [offer_id]);
   
       if (offers.length === 0) {
         return res.status(404).json({ error: 'Offer not found' });
@@ -166,7 +166,7 @@ exports.getOffers = async (req, res) => {
   
       // Check if the offer exists
       const checkQuery = 'SELECT * FROM offers WHERE id = ?';
-      const [offers] = await db.execute(checkQuery, [offer_id]);
+      const [offers] = await pool.execute(checkQuery, [offer_id]);
   
       if (offers.length === 0) {
         console.log(`Offer with id ${offer_id} not found`);
@@ -191,7 +191,7 @@ exports.getOffers = async (req, res) => {
         WHERE id = ?
       `;
   
-      const [result] = await db.execute(query, [
+      const [result] = await pool.execute(query, [
         offer_name,
         offer_description,
         formattedValidityStart,
@@ -241,7 +241,7 @@ exports.getOffers = async (req, res) => {
     try {
       const { offer_id } = req.params;
       const query = 'DELETE FROM offers WHERE id = ?';
-      const [result] = await db.execute(query, [offer_id]);
+      const [result] = await pool.execute(query, [offer_id]);
   
       if (result.affectedRows === 0) {
         return res.status(404).json({ error: 'Offer not found' });

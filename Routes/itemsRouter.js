@@ -1,24 +1,25 @@
 const express = require('express');
-const itemController = require('../Controllers/itemController');
+const { createTitle, getTitlesByItemId, createOption, getOptionsByTitleId, checkTitlesWithNoOptions, updateOption, updateSelectionType, discardCustomizations, submitCustomizationsWithCheck, getCustomizations, submitCustomizations, getSelectedCustomizations, updateItemCustomizations, createItem, readItems } = require('../Controllers/itemController');
 const auth = require('../Controllers/authController');
+const {protect} = require('../Controllers/restaurantAuthController');
 const router = express.Router();
 
-router.post('/:id', itemController.createItem);
-router.get('/:id', itemController.readItems);
-router.post('/customisation/addTitle/:id', itemController.createTitle);
-router.get('/customisation/getTitles/:id', itemController.getTitlesByItemId);
-router.post('/customisation/addOption/:id', itemController.createOption);
-router.get('/customisation/getOptions/:id', itemController.getOptionsByTitleId);
-router.get('/customisation/checkTitleOptions/:id', itemController.checkTitlesWithNoOptions);
-router.patch('/customisation/editOptions/:id', itemController.updateOption);
-router.patch('/customisation/addSelectionType/:id', itemController.updateSelectionType);
-router.delete('/customisation/discard/:id', itemController.discardCustomizations);
-
+router.post('/:id', createItem);
+router.get('/:id', readItems);
+router.post('/customisation/addTitle/:id', protect, createTitle);
+router.get('/customisation/getTitles/:id', protect, getTitlesByItemId);
+router.post('/customisation/addOption/:id', createOption);
+router.get('/customisation/getOptions/:id', getOptionsByTitleId);
+router.get('/customisation/checkTitleOptions/:id', checkTitlesWithNoOptions);
+router.patch('/customisation/editOptions/:id', updateOption);
+router.patch('/customisation/addSelectionType/:id', updateSelectionType);
+router.delete('/customisation/discard/:id', discardCustomizations);
 // user router
-router.get('/customisation/getCustomisation/:id', auth.protect,itemController.getCustomizations);
-router.post('/customisation/setUserCustomisation/:id', auth.protect,itemController.submitCustomizations);
-router.get('/customisation/getSelectedCustomisation/:id', auth.protect,itemController.getSelectedCustomizations);
-router.patch('/customisation/updateSelectedCustomisation/:id', auth.protect,itemController.updateItemCustomizations);
+router.get('/customisation/getCustomisation/:id', auth.protect,getCustomizations);
+router.post('/customisation/setUserCustomisation/:id', auth.protect,submitCustomizations);
+router.post('/customisation/setDifferCustomizations/:id',auth.protect, submitCustomizationsWithCheck);
+router.get('/customisation/getSelectedCustomisation/:id', auth.protect,getSelectedCustomizations);
+router.patch('/customisation/updateSelectedCustomisation/:id', auth.protect,updateItemCustomizations);
 
 
 module.exports = router;
