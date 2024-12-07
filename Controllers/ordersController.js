@@ -6,12 +6,20 @@ const { calculateBill } = require("./userBillController");
 
 exports.createOrder = async (req, res, next) => {
   const user_id = req.user.id;
-  const { userLat, userLon, offerCode, paymentPassKey, deliveryTip } = req.body;
-
+  const { offerCode, paymentPassKey, deliveryTip, transaction_id, payment_type } = req.body;
+// console.log(payment_type);
   try {
     // Validate payment pass key
     if (paymentPassKey !== "hrod49chr5") {
       return next(new AppError(404, "Payment Not Found!"));
+    }
+    if (payment_type !== 'card' && payment_type !== 'upi' && payment_type !== 'net banking' && payment_type !== 'wallets' && payment_type !== 'cod') {
+      return next(new AppError(400, "Invalid payment type"));
+    }    
+
+    const [user_address] = await pool.query(`SELECT * FROM useraddress WHERE user_id = ? AND selected = ?`,[user_id,true])
+    if(user_address.length === 0){
+      return next(new AppError(404, "Address not selected"));
     }
 
     // Prepare data for calculating the bill
@@ -19,12 +27,21 @@ exports.createOrder = async (req, res, next) => {
       user_id: user_id,
       offer_code: offerCode,
       delivery_tip: parseFloat(deliveryTip) || 0, // default to 0 if no delivery tip provided
-      userLat: userLat,
-      userLon: userLon,
+      userLat: user_address[0].lat,
+      userLon: user_address[0].lon,
     };
 
     // Calculate the bill
     const billData = await calculateBill(next, data);
+
+    
+    const [insertAddress] = await pool.query(`
+      INSERT INTO orderaddress 
+      (state, city, area, house_no, lat, lon, type, R_name, R_phone_no, user_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?);
+      `,[user_address[0].state, user_address[0].city, user_address[0].area, user_address[0].house_no, user_address[0].lat, user_address[0].lon, user_address[0].type, user_address[0].R_name, user_address[0].R_phone_no, user_id]);
+
+    
 
     // Fetch cart items from the database
     const [cartItems] = await pool.query(`
@@ -49,12 +66,14 @@ exports.createOrder = async (req, res, next) => {
     if (!cartItems.length) {
       return next(new AppError(400, "No items in the cart!"));
     }
-    const [billInsertion] = await pool.query(`INSERT INTO bills (item_total,delivery_fee,item_discount, delivery_tip, platform_fee,gst_and_restaurant_charges,total_bill, user_id) VALUES(?,?,?,?,?,?,?,?)`,[billData.item_total,billData.delivery_fee, billData.item_discount,billData.delivery_tip, billData.platform_fee, billData.gst_and_restaurant_charges, billData.total_bill, user_id])
+    const [billInsertion] = await pool.query(`INSERT INTO bills (item_total,delivery_fee,item_discount, delivery_tip, platform_fee,gst_and_restaurant_charges,total_bill, user_id, transaction_id, payment_type) VALUES(?,?,?,?,?,?,?,?,?,?)`,[billData.item_total,billData.delivery_fee, billData.item_discount,billData.delivery_tip, billData.platform_fee, billData.gst_and_restaurant_charges, billData.total_bill, user_id,transaction_id, payment_type])
     // Insert order into the orders table
     const [order] = await pool.query(`
       INSERT INTO orders (user_id, restaurant_id, order_status, bill_id, res_amount, del_amount) 
       VALUES (?, ?, ?,?,?,?)
     `, [user_id, cartItems[0].restaurant_id, "pending", billInsertion.insertId, billData.item_total,billData.delivery_fee]);
+
+       await pool.query(`UPDATE orderaddress SET order_id = ? WHERE id = ?`,[order.insertId, insertAddress.insertId]);
 
     // Insert items into the order_items table
     for (let i = 0; i < cartItems.length; i++) {
@@ -64,6 +83,8 @@ exports.createOrder = async (req, res, next) => {
         VALUES (?, ?, ?)
       `, [order.insertId, cartItems[i].item_id, cartItems[i].quantity]);
 
+      
+ 
       // If the item has customizations, add them to the order_item_customizations table
       if (cartItems[i].customisation) {
         const [customization] = await pool.query(`
@@ -80,7 +101,6 @@ exports.createOrder = async (req, res, next) => {
             `, [orderItem.insertId, custom.title_id, custom.option_id]);
           }
         }
-        
       }
     }
 
@@ -105,12 +125,19 @@ exports.getOrderDetails = asyncChoke(async (req, res, next) => {
   const user_id = req.user.id;
   const offerCode = "WELCOME20";
   const deliveryTip = 10;
+
+  const [user_address] = await pool.query(`SELECT * FROM useraddress WHERE user_id = ? AND selected = ?`,[user_id,true]);
   const data = {
     user_id: user_id,
     delivery_tip: deliveryTip,
-    userLat: 34.958678,
-    userLon: 74.8675847,
+      userLat: user_address[0].lat,
+      userLon: user_address[0].lon
+    
+    
+    
+    
   }
+  console.log(data);
   const bill = await calculateBill(next , data);
   console.log({bill:bill});
   return res.status(200).json({
@@ -350,6 +377,130 @@ exports.getAllOrdersRestaurant = asyncChoke(async (req, res, next) => {
     return next(new AppError(500, "Internal Server Error"));
   }
 });
+
+
+
+exports.getItemsOrder = asyncChoke(async (req, res, next) => {
+  const { id: restaurant_id } = req.user;
+  const { id: order_id } = req.params;
+
+  // Fetch the user's order
+  const [orders] = await pool.query(`
+    SELECT
+        o.id, 
+        o.res_amount, 
+        o.created_at,
+        o.user_id, 
+        o.restaurant_id, 
+        o.bill_id,
+        o.order_status,
+        oa.area AS user_area,
+        oa.house_no AS user_house_no,
+        oa.city AS user_city,
+        oa.lat AS user_latitude,
+        oa.lon AS user_longitude,
+        ra.street AS restaurant_street,
+        ra.area AS restaurant_area,
+        ra.city AS restaurant_city,
+        ra.latitude AS restaurant_latitude,
+        ra.longitude AS restaurant_longitude,
+        b.payment_type
+    FROM orders o
+    JOIN orderaddress oa ON oa.order_id = o.id
+    JOIN restaurantaddress ra ON ra.restaurant_id = o.restaurant_id
+    JOIN bills b ON b.id = o.bill_id
+    WHERE o.restaurant_id = ? AND o.id = ?`, [restaurant_id, order_id]);
+
+  if (orders.length === 0) {
+    return next(new AppError(404, "Order not found or does not belong to this restaurant"));
+  }
+
+  // Fetch order items
+  const fetchOrderItemsQuery = `
+    SELECT 
+        oi.order_id,
+        o.created_at,
+        oi.id as order_item_id, 
+        oi.item_id,
+        oi.quantity, 
+        i.name as item_name, 
+        i.price as item_price
+    FROM order_items oi
+    JOIN orders o ON oi.order_id = o.id
+    JOIN items i ON oi.item_id = i.id
+    WHERE oi.order_id = ?
+  `;
+  const [orderItems] = await pool.query(fetchOrderItemsQuery, [order_id]);
+
+  if (orderItems.length === 0) {
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        order_details: orders[0],  // Include the order details in the response
+        items: []
+      }
+    });
+  }
+
+  // Fetch and attach customizations for each order item
+  const fetchCustomizationsQuery = `
+    SELECT
+        oic.order_items_id,
+        oic.title_id,
+        ct.title,
+        oic.option_id,
+        co.option_name,
+        co.additional_price,
+        ct.selection_type
+    FROM order_item_customisation oic
+    JOIN customisation_title ct ON oic.title_id = ct.id
+    JOIN customisation_options co ON oic.option_id = co.id
+    WHERE oic.order_items_id IN (?)
+  `;
+  const orderItemIds = orderItems.map(item => item.order_item_id);
+  const [customizations] = await pool.query(fetchCustomizationsQuery, [orderItemIds]);
+
+  // Structure customizations for easier access
+  const customizationsByOrderItem = {};
+  customizations.forEach(customization => {
+    const { order_items_id, title, option_id, option_name, additional_price, selection_type, title_id } = customization;
+
+    if (!customizationsByOrderItem[order_items_id]) {
+      customizationsByOrderItem[order_items_id] = {};
+    }
+
+    if (!customizationsByOrderItem[order_items_id][title]) {
+      customizationsByOrderItem[order_items_id][title] = {
+        selection_type,
+        title,
+        title_id,
+        options: []
+      };
+    }
+
+    customizationsByOrderItem[order_items_id][title].options.push({
+      option_id,
+      option_name,
+      additional_price
+    });
+  });
+
+  // Attach customizations to order items
+  const resultItems = orderItems.map(item => ({
+    ...item,
+    customizations: customizationsByOrderItem[item.order_item_id] || {}
+  }));
+
+  // Return the structured response with order details and items array
+  res.status(200).json({
+    status: 'success',
+    data: {
+      order_details: orders[0],  // Include order details as the first part
+      items: resultItems          // Include items with their customizations
+    }
+  });
+});
+
 
 
 

@@ -326,9 +326,10 @@ exports.addAddress = asyncChoke(async (req, res, next) => {
     if (!validTypes.includes(type)) {
       return next(new AppError(400, `Type cannot be ${type}`));
     }
+    await pool.query(`UPDATE useraddress SET selected = ? WHERE user_id = ?`, [false, id]);
     const [userAddress] = await pool.query(
-      "INSERT INTO userAddress (user_id, state, city, area, house_no, lat, lon, type, R_name, R_phone_no) VALUES(?,?,?,?,?,?,?,?,?,?)",
-      [id, state, city, area, house_no, lat, lon, type, R_name, R_phone_no]
+      "INSERT INTO useraddress (user_id, state, city, area, house_no, lat, lon, type, R_name, R_phone_no, selected) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+      [id, state, city, area, house_no, lat, lon, type, R_name, R_phone_no,true]
     );
     if (userAddress.affectedRows === 0) {
       return next(new AppError(400, "Error: Cannot add address!"));

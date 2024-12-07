@@ -2,7 +2,7 @@ const { pool } = require("../Config/database");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const jwt = require("jsonwebtoken");
-const { isValidPhoneNumber } = require("../Utils/utils");
+const { isValidPhoneNumber, calculateGrowthRate } = require("../Utils/utils");
 // CREATE Restaurant
 exports.createRestaurant = asyncChoke(async (req, res, next) => {
   const {id:restaurant_id, approved} = req.user;
@@ -212,10 +212,126 @@ exports.createRestaurantDocs = asyncChoke(async(req, res, next)=>{
   });
   }
   catch(err){
-  
     return next(new AppError(401, err));
   }
 });
+
+
+
+exports.getSellerDashboard = asyncChoke(async (req, res, next) => {
+  const { id: restaurant_id } = req.user; // Extract restaurant ID from req.user
+  const { start_date, end_date } = req.query; // Optional dynamic date range for graphs
+
+  try {
+    // Handle dynamic date range or default to all-time data
+    const dateCondition = start_date && end_date ? `AND DATE(created_at) BETWEEN ? AND ?` : "";
+
+    // Total income for the restaurant, filtered by date range if provided
+    const [totalIncomeResult] = await pool.query(
+      `SELECT SUM(res_amount) AS total_income 
+       FROM orders 
+       WHERE restaurant_id = ?`,
+      [restaurant_id]
+    );
+    const totalIncome = totalIncomeResult[0]?.total_income || 0;
+
+    // Today's income and orders
+    const [todayResult] = await pool.query(
+      `SELECT COUNT(*) AS orders_today, SUM(res_amount) AS income_today 
+       FROM orders 
+       WHERE restaurant_id = ? AND DATE(created_at) = CURDATE()`,
+      [restaurant_id]
+    );
+    const ordersToday = todayResult[0]?.orders_today || 0;
+    const incomeToday = todayResult[0]?.income_today || 0;
+
+    // Previous day's income and orders
+    const [yesterdayResult] = await pool.query(
+      `SELECT COUNT(*) AS orders_yesterday, SUM(res_amount) AS income_yesterday 
+       FROM orders 
+       WHERE restaurant_id = ? AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY`,
+      [restaurant_id]
+    );
+    const ordersYesterday = yesterdayResult[0]?.orders_yesterday || 0;
+    const incomeYesterday = yesterdayResult[0]?.income_yesterday || 0;
+
+    // Calculate Average Sales for today
+    const [averageSalesResult] = await pool.query(
+      `SELECT AVG(res_amount) AS average_sales 
+       FROM orders 
+       WHERE restaurant_id = ?`,
+      [restaurant_id]
+    );
+    const averageSales = averageSalesResult[0]?.average_sales || 0;
+
+    // Calculate Average Sales for the previous day
+    const [averageSalesYesterdayResult] = await pool.query(
+      `SELECT AVG(res_amount) AS average_sales_yesterday 
+       FROM orders 
+       WHERE restaurant_id = ? AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY`,
+      [restaurant_id]
+    );
+    const averageSalesYesterday = averageSalesYesterdayResult[0]?.average_sales_yesterday || 0;
+
+    // Growth rates (Income and Orders)
+    const incomeGrowthRate = calculateGrowthRate(incomeToday, incomeYesterday);
+    const ordersGrowthRate = calculateGrowthRate(ordersToday, ordersYesterday);
+    const averageSalesGrowthRate = calculateGrowthRate(averageSales, averageSalesYesterday);
+
+    // Dynamic revenue and orders graph data, based on the date range if provided
+    const [graphData] = await pool.query(
+      `SELECT 
+          DATE(created_at) AS date, 
+          COUNT(*) AS total_orders, 
+          SUM(res_amount) AS total_revenue 
+       FROM orders 
+       WHERE restaurant_id = ? 
+       ${dateCondition}
+       GROUP BY DATE(created_at) 
+       ORDER BY DATE(created_at) ASC`,
+      start_date && end_date ? [restaurant_id, start_date, end_date] : [restaurant_id]
+    );
+
+    // Response structure
+    return res.status(200).json({
+      status: "success",
+      data: {
+        mainData: {
+          totalIncome: {
+            totalIncome: totalIncome,
+            growthRate: `${incomeGrowthRate}%`,
+          },
+          incomeToday: {
+            incomeToday: incomeToday,
+            growthRate: `${incomeGrowthRate}%`,
+          },
+          ordersToday: {
+            ordersToday,
+            growthRate: `${ordersGrowthRate}%`,
+          },
+          averageSales: {
+            averageSales: averageSales,
+            growthRate: `${averageSalesGrowthRate}%`, // Corrected growth rate for average sales
+          },
+        },
+        graphData: graphData.map((item) => ({
+          date: item.date,
+          totalOrders: item.total_orders,
+          totalRevenue: item.total_revenue,
+        })),
+      },
+    });
+  } catch (err) {
+    console.log(err);
+    return next(
+      new AppError(500, "Internal Server Error while fetching dashboard data", err)
+    );
+  }
+});
+
+
+
+
 
 
 

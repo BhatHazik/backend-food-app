@@ -27,7 +27,7 @@ exports.addItemCart = asyncChoke(async (req, res, next) => {
 
     // Fetch item details including restaurant_id
     const [item] = await pool.query(`
-        SELECT items.id as item_id, menus.restaurant_id
+        SELECT items.id as item_id, items.price as item_price, menus.restaurant_id
         FROM items
         JOIN categories ON items.category_id = categories.id
         JOIN menus ON categories.menu_id = menus.id
@@ -62,12 +62,12 @@ exports.addItemCart = asyncChoke(async (req, res, next) => {
     if (violatesConsistency) {
         return next(new AppError(400, "Cannot add items from different restaurants to the cart"));
     }
-
+    const item_total = item[0].item_price * quantity;
     // Ensure that item_id and quantity are properly handled
-    const query = `INSERT INTO cart_items (item_id, quantity, cart_id) VALUES (?, ?, ?)`;
+    const query = `INSERT INTO cart_items (item_id, item_total, quantity, cart_id) VALUES (?, ?, ?, ?)`;
 
     // Execute the query
-    const [result] = await pool.query(query, [itemIdInMenu, quantity, cart_id]);
+    const [result] = await pool.query(query, [itemIdInMenu, item_total, quantity, cart_id]);
     if(result.affectedRows < 1){
         return next(new AppError(400, "Error while adding item in cart!"))
     }
@@ -212,6 +212,7 @@ exports.getItemsCart = asyncChoke(async (req, res, next) => {
 
 
 
+
 exports.itemQuantity = asyncChoke(async(req, res, next) =>{
     try{
     const user_id = req.user.id;
@@ -224,7 +225,7 @@ exports.itemQuantity = asyncChoke(async(req, res, next) =>{
         return next(new AppError(404, "This cart item does not belong to your cart"));
     }
     if(quantity < 1){
-        const [cart_item] = await pool.query(`SELECT * FROM cart_items_customisation WHERE cart_item_id = ?`,[cart_item_id]);
+        const [cart_item] = await pool.query(`SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`,[cart_item_id]);
         if(cart_item.length > 0){
             return next(new AppError(400, "This " ));
         }

@@ -1,5 +1,5 @@
 const express = require('express');
-const { createOrder, getOrderDetails, getOrdersById, getAllOrdersRestaurant } = require('../Controllers/ordersController');
+const { createOrder, getOrderDetails, getOrdersById, getAllOrdersRestaurant, getItemsOrder } = require('../Controllers/ordersController');
 const userAuth = require('../Controllers/authController');
 const { protect } = require('../Controllers/restaurantAuthController');
 const router = express.Router();
@@ -18,6 +18,7 @@ router.get('/getOrders/:id', userAuth.protect, getOrdersById);
 // ----------------------------------------------------------------
 
 router.get('/restaurantOrders', protect, getAllOrdersRestaurant);
+router.get('/getRestaurantOrderDetails/:id' , protect, getItemsOrder);
 
 
 module.exports = router;

@@ -11,7 +11,7 @@ const RESTAURANT_CHARGES_RATE = 0.15; // GST and restaurant charges rate
 exports.calculateBill = asyncChoke(async (next, data ) => {
     // console.log(data.delivery_tip);
   const {userLat, userLon, user_id, offer_code:offerCode, delivery_tip:deliveryTip} = data;
-  if(!userLat || !userLon || !deliveryTip){
+  if(!userLat || !userLon){
     return next(new AppError(400, "All fields are required"));
   }
 //  console.log(data);
