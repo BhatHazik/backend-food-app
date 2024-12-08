@@ -2,7 +2,7 @@ const { pool } = require("../Config/database");
 const jwt = require("jsonwebtoken");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
-const { isValidPhoneNumber, convertExpiryDate } = require("../Utils/utils");
+const { isValidPhoneNumber, convertExpiryDate, createSendToken } = require("../Utils/utils");
 const { verifyPaymentOrder } = require("../Utils/razorpay");
 
 // create or signup with otp
@@ -45,20 +45,12 @@ exports.createUserOTP = asyncChoke(async (req, res, next) => {
   }
 });
 
-const createSendToken = (res, req, phone_no) => {
-  const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
-  // console.log(process.env.JWT_EXPIRY, process.env.JWT_SECRET)
-  const token = jwt.sign(
-    { data: phone_no },
-    process.env.JWT_SECRET,
-    tokenOptions
-  );
-  return token;
-};
+
 // userSignUp API
 exports.userSignUp = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;
   const { name, email, phNO: phone_no } = req.params;
+  const role = "user";
 
   if (givenOTP !== "" && phone_no !== "" && email !== "" && name !== "") {
     if(!isValidPhoneNumber(phone_no)){
@@ -77,7 +69,7 @@ exports.userSignUp = asyncChoke(async (req, res, next) => {
     if (otpResult[0].otp_matched === 0) {
       return next(new AppError(401, "Invalid OTP"));
     }
-    const token = createSendToken(res, req, phone_no);
+    const token = createSendToken(res, req, phone_no, role);
     const insertUserQuery = `INSERT INTO users (username, email, phone_no) VALUES (?, ?, ?)`;
     await pool.query(insertUserQuery, [name, email, phone_no]);
     const userDataQuery = `SELECT * FROM users WHERE phone_no = ?`;
@@ -96,7 +88,7 @@ exports.userSignUp = asyncChoke(async (req, res, next) => {
 exports.userLogin = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;
   const { phone_no } = req.params;
-
+  const role = "user";
   if (givenOTP !== "" && phone_no !== "") {
     if(!isValidPhoneNumber(phone_no)){
       return next(new AppError(400, "Please Provide 10 digits mobile number"));
@@ -113,7 +105,7 @@ exports.userLogin = asyncChoke(async (req, res, next) => {
       if (otpResult[0].otp_matched === 0) {
         return next(new AppError(401, "Invalid OTP"));
       }
-      const token = createSendToken(res, req, phone_no);
+      const token = createSendToken(res, req, phone_no, role);
       return res.status(200).json({status:"Success", message: "Logged in successfully",userData:userResult[0], token });
     }
     else{

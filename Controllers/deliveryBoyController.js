@@ -147,7 +147,7 @@ exports.updateDeliveryPersonal = asyncChoke(async(req, res, next)=>{
     return next(new AppError(400, "Please provide all fields"));
   }
   
-    const [updatePersonal] = await pool.query(`UPDATE delivery_boys SET first_name = NULL, last_name = ?, gender = ?, profile_pic = ? WHERE id =?`,[ last_name, gender, profile_pic, user_id]);
+    const [updatePersonal] = await pool.query(`UPDATE delivery_boys SET first_name = ?, last_name = ?, gender = ?, profile_pic = ? WHERE id =?`,[first_name, last_name, gender, profile_pic, user_id]);
     if(updatePersonal.affectedRows === 0){
       return next(new AppError(404, "Unable to load you personal details"));
     }
@@ -330,6 +330,7 @@ exports.deliveryOTPsender = asyncChoke(async (req, res, next) => {
 exports.deliveryLogin = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;
   const phone_no = req.params.phNO;
+  const role = "delivery_boy";
 
   // Check if givenOTP and phone_no are provided
   if (!givenOTP) {
@@ -358,7 +359,7 @@ exports.deliveryLogin = asyncChoke(async (req, res, next) => {
     const [otpResult] = await pool.query(otpQuery, [phone_no, givenOTP]);
 
     if (otpResult[0].otp_matched === 1) {
-      const token = createSendToken(res, req, phone_no);
+      const token = createSendToken(res, req, phone_no, role);
       return res.status(200).json({ message: "Login success", token });
     } else {
       return next(new AppError(401, "Invalid OTP"));
@@ -405,9 +406,9 @@ exports.deliveryLogin = asyncChoke(async (req, res, next) => {
 
         // Execute all queries in parallel
         await Promise.all(queries);
-
+        
         // Generate token and respond
-        const token = createSendToken(res, req, phone_no);
+        const token = createSendToken(res, req, phone_no, role);
         return res
           .status(200)
           .json({ message: "Account created successfully", token });
@@ -423,10 +424,36 @@ exports.deliveryLogin = asyncChoke(async (req, res, next) => {
 
 
 
+// exports.acceptOrder = asyncChoke(async(req, res, next)=>{
+//   const {order_id} = req.query;
+//   const {id:delivery_boy_id} = req.user;
+//   try{
+//     const [order] = await pool.query(`SELECT * FROM `)
+//   }
+// })
 
 
-
-
+exports.goOnline = asyncChoke(async(req, res, next)=>{
+  const {id:del_id} = req.user;
+  const {status} = req.body;
+  try{
+    if(status !== 'online' && status !== 'offline'){
+      return next(new AppError(400, 'Invalid status. Only online or offline is allowed'))
+    }
+    const [updateStatus] = await pool.query(
+      `UPDATE delivery_work SET status = ? WHERE del_id = ?;`,
+      [status, del_id]
+    );
+    if(updateStatus.affectedRows === 1){
+      return res.status(200).json({message: 'Status updated successfully'})
+    }else{
+      return next(new AppError(500, 'Failed to update status'))
+    }
+  }
+  catch(err){
+    return next(new AppError(500, 'Server Error', err))
+  }
+})
 
 
 

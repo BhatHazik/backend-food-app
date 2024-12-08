@@ -6,7 +6,7 @@ const router = express.Router();
 
 router.get('/unApprovedRestaurants', getRestaurantsAdmin);
 router.patch('/approveRestaurant/:id', approveRestaurants);
-router.get('/unApprovedDeleveryBoys', getDeleveryBoysAdmin);
+router.get('/getAllDeleveryBoys', getDeleveryBoysAdmin);
 router.patch('/approveDeleveryBoy/:id', approveDeleveryBoys);
 router.patch('/approveDeleveryBoy/:id', approveDeleveryBoys);
 router.post('/createCategory', createMainCategory);

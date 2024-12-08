@@ -2,7 +2,9 @@ const { pool } = require("../Config/database");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const jwt = require("jsonwebtoken");
-const { isValidPhoneNumber, calculateGrowthRate } = require("../Utils/utils");
+const { isValidPhoneNumber, calculateGrowthRate, createSendToken } = require("../Utils/utils");
+const { getSocketIoServer } = require("../Utils/socketHandler");
+const geolib = require('geolib')
 // CREATE Restaurant
 exports.createRestaurant = asyncChoke(async (req, res, next) => {
   const {id:restaurant_id, approved} = req.user;
@@ -842,15 +844,109 @@ exports.deleteRestaurant = asyncChoke(async (req, res, next) => {
   });
 });
 
-const createSendToken = (res, req, phone_no) => {
-  const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
-  const token = jwt.sign(
-    { data: phone_no },
-    process.env.JWT_SECRET,
-    tokenOptions
-  );
-  return token;
-};
+
+
+
+
+exports.orderAcception = asyncChoke(async (req, res, next) => {
+  const { order_id, type } = req.query;
+  const { id: restaurant_id } = req.user;
+  let order_status;
+  
+  try {
+    if (type !== 'confirm' && type !== 'cancel') {
+      return next(new AppError(400, "Invalid type"));
+    }
+    
+    const [order] = await pool.query(
+      `SELECT o.id AS order_id, o.order_status, o.restaurant_id, o.user_id, ra.latitude, ra.longitude
+       FROM orders o
+       JOIN restaurantaddress ra ON o.restaurant_id = ra.restaurant_id
+       WHERE o.id = ? AND o.restaurant_id = ?`,
+      [order_id, restaurant_id]
+    );
+    
+    if (!order || order.length === 0) {
+      return next(new AppError(404, `Order with id '${order_id}' not found`));
+    }
+    
+    // if (order[0].order_status === 'confirmed') {
+    //   return next(new AppError(400, "Order already accepted"));
+    // }
+    
+    if (order[0].status === 'cancelled') {
+      return next(new AppError(400, "Order already canceled"));
+    }
+    
+    if (order[0].restaurant_id !== restaurant_id) {
+      return next(new AppError(403, "You are not authorized to accept this order"));
+    }
+    
+    if (type === 'cancel') {
+      order_status = 'cancelled';
+    }
+    
+    if (type === 'confirm') {
+      order_status = 'confirmed';
+    }
+    
+    const query = "UPDATE orders SET order_status = ? WHERE id = ?";
+    await pool.query(query, [order_status, order_id]);
+
+    // Get the userId associated with the order
+    const userId = order[0].user_id;
+    
+    const io = getSocketIoServer();
+
+    // Emit the event to notify the user if they are connected
+    if (io.connectedUsers[userId]) {
+      io.to(io.connectedUsers[userId]).emit('orderStatus', {
+        status: order_status,
+        message: `Your order ${order_id} has been ${order_status} by the restaurant!`
+      });
+    }
+if(order_status === 'confirmed') {
+    // Emit notifications to all online delivery boys within 10km radius
+    const restaurantLocation = { 
+      lat: order[0].latitude,  // Assuming the restaurant has lat and lng stored
+      lng: order[0].longitude 
+    };
+
+    for (const deliveryBoyId in io.connectedDeliveryBoys) {
+      const deliveryBoy = io.connectedDeliveryBoys[deliveryBoyId];
+
+      // Only notify online delivery boys
+      if (deliveryBoy.status === 'online') {
+        const deliveryBoyLocation = deliveryBoy.location;
+
+        // Calculate the distance between the restaurant and the delivery boy
+        const distance = geolib.getDistance(restaurantLocation, deliveryBoyLocation);
+console.log(distance);
+        // If the distance is less than or equal to 10km (10,000 meters)
+        if (distance <= 10000) {
+          // Emit the order notification to the delivery boy
+          io.to(deliveryBoy.socketId).emit('newOrderNotification', {
+            message: `New order available from Restaurant ${restaurant_id}.`,
+            orderDetails: order[0]  // Send the order details if necessary
+          });
+
+          console.log(`Notified Delivery Boy ${deliveryBoyId}`);
+        }
+      }
+    }
+  }
+    res.status(200).json({
+      status: "Success",
+      message: `Order with id '${order_id}' accepted successfully`,
+    });
+    
+  } catch (err) {
+    console.error(err);
+    next(new AppError(500, "Server Error"));
+  }
+});
+
+
 
 // create otp on number
 // createSellerOTP API
@@ -902,7 +998,7 @@ exports.sellerOTPsender = asyncChoke(async (req, res, next) => {
 exports.sellerLogin = asyncChoke(async (req, res, next) => {
   const { givenOTP } = req.body;
   const phone_no = req.params.phNO;
-
+  const role = "seller";
   // Check if givenOTP is provided
   if (!givenOTP) {
     return next(new AppError(400, "OTP cannot be empty"));
@@ -930,7 +1026,7 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
 
 
     if (otpResult[0].otp_matched === 1) {
-      const token = createSendToken(res, req, phone_no);
+      const token = createSendToken(res, req, phone_no, role);
       return res.status(200).json({ message: "Login success", token });
     } else {
       return next(new AppError(401, "Invalid OTP"));

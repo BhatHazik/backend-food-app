@@ -5,10 +5,11 @@ exports.isValidPhoneNumber = function(phoneNo) {
     return phoneRegex.test(phoneNo);
   };
 
- exports.createSendToken = (res, req, phone_no) => {
+ exports.createSendToken = (res, req, phone_no, role) => {
+  console.log(role);
     const tokenOptions = { expiresIn: process.env.JWT_EXPIRY };
     const token = jwt.sign(
-      { data: phone_no },
+      { data: phone_no , role: role},
       process.env.JWT_SECRET,
       tokenOptions
     );
