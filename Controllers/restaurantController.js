@@ -218,91 +218,205 @@ exports.createRestaurantDocs = asyncChoke(async(req, res, next)=>{
 
 
 
+exports.getOrderStats = asyncChoke(async (req, res, next) => {
+  const { reports, start_date, end_date } = req.query;
+  const { id: restaurant_id } = req.user;
+
+  // Validate the required query parameters
+  if (!restaurant_id || !start_date || !end_date) {
+    return next(
+      new AppError(400, 'Missing required parameters: restaurant_id, start_date, or end_date.')
+    );
+  }
+
+  try {
+
+
+    
+    let query;
+    let allDataQuery;
+    let queryParams = [restaurant_id, start_date, end_date];
+    let allDataQueryParams = [restaurant_id]
+    if (reports === 'orders') {
+
+      allDataQuery = `SELECT
+    COUNT(*) AS total_orders, -- Total number of orders
+    SUM(CASE WHEN order_status = 'cancelled' THEN 1 ELSE 0 END) AS cancelled_orders, -- Count of cancelled orders
+    SUM(CASE WHEN order_status IN ('delivered', 'completed') THEN 1 ELSE 0 END) AS completed_orders -- Count of delivered or completed orders
+FROM 
+    orders
+WHERE 
+    restaurant_id = ?;
+`
+      query = `
+        SELECT 
+          CONVERT_TZ(created_at, '+00:00', '+05:30') AS order_date,
+          COUNT(*) AS order_count
+        FROM 
+          orders
+        WHERE 
+          restaurant_id = ?
+          AND created_at BETWEEN ? AND ?
+        GROUP BY 
+          order_date
+        ORDER BY 
+          order_date DESC;
+      `;
+    } else if (reports === 'revenue') {
+      allDataQuery = `
+        SELECT 
+    SUM(CASE WHEN b.payment_type = 'cod' THEN 1 ELSE 0 END) AS COD_payment,
+    SUM(CASE WHEN b.payment_type != 'cod' THEN 1 ELSE 0 END) AS online_payment,
+    ROUND(
+        (SUM(CASE WHEN b.payment_type = 'cod' THEN 1 ELSE 0 END) / COUNT(o.bill_id)) * 100, 2
+    ) AS COD_payment_percentage,
+    ROUND(
+        (SUM(CASE WHEN b.payment_type != 'cod' THEN 1 ELSE 0 END) / COUNT(o.bill_id)) * 100, 2
+    ) AS online_payment_percentage
+FROM 
+    orders o
+LEFT JOIN 
+    bills b 
+ON 
+    o.bill_id = b.id
+WHERE 
+    o.restaurant_id = ?;
+`
+      query = `
+        SELECT 
+          CONVERT_TZ(created_at, '+00:00', '+05:30') AS order_date,
+          SUM(res_amount) AS total_revenue
+        FROM 
+          orders
+        WHERE 
+          restaurant_id = ?
+          AND created_at BETWEEN ? AND ?
+          AND order_status NOT IN ('pending', 'cancelled')
+        GROUP BY 
+          order_date
+        ORDER BY 
+          order_date DESC;
+      `;
+    } else {
+      return next(
+        new AppError(400, 'Invalid report type. Please choose between "orders" or "revenue".')
+      );
+    }
+
+    const [graphData] = await pool.query(query, queryParams);
+    const [allData] = await pool.query(allDataQuery, allDataQueryParams);
+    // If no data is found
+    if (graphData.length === 0) {
+      return next(new AppError(404, 'No data found for the specified parameters.'));
+    }
+
+    return res.status(200).json({
+      status: 'success',
+      data:{ graphData, allData},
+    });
+  } catch (err) {
+    console.error(err);
+    return next(new AppError(500, 'Internal Server Error', err));
+  }
+});
+
+
+
 exports.getSellerDashboard = asyncChoke(async (req, res, next) => {
   const { id: restaurant_id } = req.user; // Extract restaurant ID from req.user
   const { start_date, end_date } = req.query; // Optional dynamic date range for graphs
-
+  
+  
   try {
-    // Handle dynamic date range or default to all-time data
+    // Dynamic date condition for graphs
     const dateCondition = start_date && end_date ? `AND DATE(created_at) BETWEEN ? AND ?` : "";
 
-    // Total income for the restaurant, filtered by date range if provided
-    const [totalIncomeResult] = await pool.query(
-      `SELECT SUM(res_amount) AS total_income 
-       FROM orders 
+    // Single query to fetch all required aggregated data
+    const [dashboardData] = await pool.query(
+      `SELECT 
+          COALESCE(SUM(CASE WHEN order_status IN ('arrived', 'on the way', 'delivered') THEN res_amount ELSE 0 END), 0) AS total_income,
+          COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() AND order_status IN ('arrived', 'on the way', 'delivered') THEN res_amount ELSE 0 END), 0) AS income_today,
+          COALESCE(COUNT(CASE WHEN DATE(created_at) = CURDATE() AND order_status IN ('arrived', 'on the way', 'delivered') THEN 1 ELSE NULL END), 0) AS orders_today,
+          COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() - INTERVAL 1 DAY AND order_status IN ('arrived', 'on the way', 'delivered') THEN res_amount ELSE 0 END), 0) AS income_yesterday,
+          COALESCE(COUNT(CASE WHEN DATE(created_at) = CURDATE() - INTERVAL 1 DAY AND order_status IN ('arrived', 'on the way', 'delivered') THEN 1 ELSE NULL END), 0) AS orders_yesterday,
+          COALESCE(AVG(res_amount), 0) AS average_sales,
+          COALESCE(AVG(CASE WHEN DATE(created_at) = CURDATE() - INTERVAL 1 DAY THEN res_amount ELSE NULL END), 0) AS average_sales_yesterday
+       FROM orders
        WHERE restaurant_id = ?`,
       [restaurant_id]
     );
-    const totalIncome = totalIncomeResult[0]?.total_income || 0;
 
-    // Today's income and orders
-    const [todayResult] = await pool.query(
-      `SELECT COUNT(*) AS orders_today, SUM(res_amount) AS income_today 
-       FROM orders 
-       WHERE restaurant_id = ? AND DATE(created_at) = CURDATE()`,
-      [restaurant_id]
-    );
-    const ordersToday = todayResult[0]?.orders_today || 0;
-    const incomeToday = todayResult[0]?.income_today || 0;
+    // Extract and parse data from the query result
+    const {
+      total_income = 0,
+      income_today = 0,
+      orders_today = 0,
+      income_yesterday = 0,
+      orders_yesterday = 0,
+      average_sales = 0,
+      average_sales_yesterday = 0,
+    } = dashboardData[0] || {};
 
-    // Previous day's income and orders
-    const [yesterdayResult] = await pool.query(
-      `SELECT COUNT(*) AS orders_yesterday, SUM(res_amount) AS income_yesterday 
-       FROM orders 
-       WHERE restaurant_id = ? AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY`,
-      [restaurant_id]
-    );
-    const ordersYesterday = yesterdayResult[0]?.orders_yesterday || 0;
-    const incomeYesterday = yesterdayResult[0]?.income_yesterday || 0;
+    // Convert to numeric types
+    const totalIncome = parseFloat(total_income) || 0;
+    const incomeToday = parseFloat(income_today) || 0;
+    const ordersToday = parseInt(orders_today, 10) || 0;
+    const incomeYesterday = parseFloat(income_yesterday) || 0;
+    const ordersYesterday = parseInt(orders_yesterday, 10) || 0;
+    const averageSales = parseFloat(average_sales) || 0;
+    const averageSalesYesterday = parseFloat(average_sales_yesterday) || 0;
 
-    // Calculate Average Sales for today
-    const [averageSalesResult] = await pool.query(
-      `SELECT AVG(res_amount) AS average_sales 
-       FROM orders 
-       WHERE restaurant_id = ?`,
-      [restaurant_id]
-    );
-    const averageSales = averageSalesResult[0]?.average_sales || 0;
+ 
 
-    // Calculate Average Sales for the previous day
-    const [averageSalesYesterdayResult] = await pool.query(
-      `SELECT AVG(res_amount) AS average_sales_yesterday 
-       FROM orders 
-       WHERE restaurant_id = ? AND DATE(created_at) = CURDATE() - INTERVAL 1 DAY`,
-      [restaurant_id]
-    );
-    const averageSalesYesterday = averageSalesYesterdayResult[0]?.average_sales_yesterday || 0;
-
-    // Growth rates (Income and Orders)
+    // Calculate growth rates
     const incomeGrowthRate = calculateGrowthRate(incomeToday, incomeYesterday);
     const ordersGrowthRate = calculateGrowthRate(ordersToday, ordersYesterday);
     const averageSalesGrowthRate = calculateGrowthRate(averageSales, averageSalesYesterday);
 
-    // Dynamic revenue and orders graph data, based on the date range if provided
-    const [graphData] = await pool.query(
-      `SELECT 
-          DATE(created_at) AS date, 
-          COUNT(*) AS total_orders, 
-          SUM(res_amount) AS total_revenue 
-       FROM orders 
-       WHERE restaurant_id = ? 
-       ${dateCondition}
-       GROUP BY DATE(created_at) 
-       ORDER BY DATE(created_at) ASC`,
-      start_date && end_date ? [restaurant_id, start_date, end_date] : [restaurant_id]
-    );
 
-    // Response structure
+  
+    // Graph data query
+    // Graph data query with adjusted timezone to Asia/Kolkata (IST)
+    let query = `
+  SELECT 
+        CONVERT_TZ(created_at, '+00:00', '+05:30') AS order_date,
+        COUNT(*) AS order_count,
+        SUM(res_amount) AS total_amount
+      FROM 
+        orders
+      WHERE 
+        restaurant_id = ?
+        AND order_status NOT IN(?,?,?) AND created_at BETWEEN ? AND ?
+      GROUP BY 
+        order_date
+      ORDER BY 
+        order_date DESC;
+`;
+
+let queryParams = [restaurant_id, 'pending', 'confirmed','cancelled', start_date, end_date];
+
+// if (start_date && end_date) {
+//   query += ` AND created_at BETWEEN ? AND ?`;
+//   queryParams.push(start_date, end_date);  // Add the date range parameters
+// }
+
+const [graphData] = await pool.query(query, queryParams);
+
+
+
+
+
+    // Construct response
     return res.status(200).json({
       status: "success",
       data: {
         mainData: {
           totalIncome: {
-            totalIncome: totalIncome,
+            totalIncome: totalIncome.toFixed(2),
             growthRate: `${incomeGrowthRate}%`,
           },
           incomeToday: {
-            incomeToday: incomeToday,
+            incomeToday: incomeToday.toFixed(2),
             growthRate: `${incomeGrowthRate}%`,
           },
           ordersToday: {
@@ -310,21 +424,53 @@ exports.getSellerDashboard = asyncChoke(async (req, res, next) => {
             growthRate: `${ordersGrowthRate}%`,
           },
           averageSales: {
-            averageSales: averageSales,
-            growthRate: `${averageSalesGrowthRate}%`, // Corrected growth rate for average sales
+            averageSales: averageSales.toFixed(2),
+            growthRate: `${averageSalesGrowthRate}%`,
           },
         },
         graphData: graphData.map((item) => ({
-          date: item.date,
-          totalOrders: item.total_orders,
-          totalRevenue: item.total_revenue,
+          date: item.order_date,
+          totalOrders: item.order_count,
+          totalRevenue: parseFloat(item.total_amount).toFixed(2),
         })),
       },
     });
   } catch (err) {
-    console.log(err);
+    console.error(err); // Log error for debugging
     return next(
       new AppError(500, "Internal Server Error while fetching dashboard data", err)
+    );
+  }
+});
+
+
+
+exports.getMostOrderedItems = asyncChoke(async (req, res, next) => {
+  const { id: restaurant_id } = req.user; // Extract restaurant ID from req.user
+  
+  try {
+    // Query to get the top 6 most ordered items
+    const [topItems] = await pool.query(
+      `SELECT i.name AS item_name, COUNT(oi.item_id) AS order_count
+       FROM order_items oi
+       JOIN items i ON oi.item_id = i.id
+       JOIN orders o ON oi.order_id = o.id
+       WHERE o.restaurant_id = ?
+       GROUP BY oi.item_id
+       ORDER BY order_count DESC
+       LIMIT 6`,
+      [restaurant_id]
+    );
+
+    // Return the result
+    return res.status(200).json({
+      status: "success",
+      data: topItems
+    });
+  } catch (err) {
+    console.log(err);
+    return next(
+      new AppError(500, "Internal Server Error while fetching top ordered items", err)
     );
   }
 });
@@ -656,17 +802,21 @@ exports.getRestaurantById = asyncChoke(async (req, res, next) => {
 
 // UPDATE Restaurant
 exports.updateRestaurant = asyncChoke(async (req, res, next) => {
-  const { id } = req.params;
+  const { id , approved} = req.user;
   const { owner_name, owner_phone_no, owner_email, restaurant_name } = req.body;
+
+  if(!approved || approved === 0){
+    return next(new AppError(403, "You are not authorized to update this restaurant"));
+  }
   const query =
-    "UPDATE restaurants SET owner_name = ?, owner_phone_no = ?, owner_email = ?, restaurant_name = ?, updated_at = ? WHERE id = ?";
+    "UPDATE restaurants SET owner_name = ?, owner_phone_no = ?, owner_email = ?, restaurant_name = ? WHERE id = ? AND approved = ?";
   const values = [
     owner_name,
     owner_phone_no,
     owner_email,
     restaurant_name,
-    new Date(),
     id,
+    1
   ];
   const result = await pool.query(query, values);
   if (result.affectedRows === 0) {

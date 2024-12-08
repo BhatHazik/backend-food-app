@@ -2,7 +2,7 @@ const { pool } = require("../Config/database");
 const jwt = require("jsonwebtoken");
 const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
-const { isValidPhoneNumber } = require("../Utils/utils");
+const { isValidPhoneNumber, convertExpiryDate } = require("../Utils/utils");
 const { verifyPaymentOrder } = require("../Utils/razorpay");
 
 // create or signup with otp
@@ -439,5 +439,198 @@ exports.PurchaseVerify = asyncChoke(async(req, res, next) => {
 })
 
 
+
+
+
+
+exports.addCard = asyncChoke(async (req, res, next) => {
+  const { card_no, valid, cvv, name_on_card, nick_name } = req.body;
+  const { id: user_id } = req.user; // Get user_id from the authenticated user (req.user)
+
+  // Validate the input fields
+  if (!card_no || !valid || !cvv || !name_on_card) {
+    return next(new AppError(400, 'Missing required fields: card_no, valid, cvv, name_on_card.'));
+  }
+  const formatedvalid = convertExpiryDate(valid)
+
+  // Insert card details into the database
+  try {
+    const query = `
+      INSERT INTO cards (card_no, valid, cvv, name_on_card, nick_name, user_id)
+      VALUES (?, ?, ?, ?, ?, ?);
+    `;
+
+    // Store the card details in the database
+    await pool.query(query, [card_no, formatedvalid, cvv, name_on_card, nick_name, user_id]);
+
+    return res.status(201).json({
+      status: 'success',
+      message: 'Card details added successfully.'
+    });
+  } catch (err) {
+    console.log(err);
+    return next(new AppError(500, 'Internal Server Error', err));
+  }
+});
+
+
+
+// Function to add UPI details
+exports.addUPI = async (req, res, next) => {
+    const { upi_id } = req.body;
+    const user_id = req.user.id; // Assuming user ID comes from authentication middleware
+    
+    // Validate UPI ID
+    if (!upi_id) {
+      return next(new AppError(400, 'UPI ID is required'));
+    }
+
+
+    try {
+      // Check if UPI ID already exists in the database
+      const [upiExists] = await pool.query(
+        'SELECT * FROM upi_details WHERE user_id =? AND upi_id = ?',
+        [user_id, upi_id]
+      );
+      
+      if (upiExists.length > 0) {
+        return res.status(409).json({ message: 'UPI ID already exists' });
+      }
+        // Insert UPI details into the database
+        const [result] = await pool.query(
+            'INSERT INTO upi_details (user_id, upi_id) VALUES (?, ?)',
+            [user_id, upi_id]
+        );
+        
+        // Respond with success message
+        res.status(200).json({ message: 'UPI details added successfully'});
+    } catch (error) {
+        console.error(error);
+        return next(new AppError(500, 'Internal Server Error', error));
+    }
+};
+
+
+exports.rateItems = asyncChoke(async (req, res, next) => {
+  const userId = req.user.id; // user_id from req.user (Authenticated user)
+  const { order_id, ratings } = req.body; // order_id from request body and ratings (object containing item_id and rating)
+
+  try {
+    if(!order_id || !ratings) {
+      return next(new AppError(400, 'Provide required credentials'));
+    }
+    // Step 1: Get items associated with the order_id from order_items
+    const [orderItems] = await pool.query(
+      `SELECT item_id FROM order_items WHERE order_id = ?`,
+      [order_id]
+    );
+console.log(orderItems)
+    if (orderItems.length === 0) {
+      return next(new AppError(404, "No items found for the provided order_id."));
+    }
+
+    // Step 2: Check if the user has already rated an item, and prepare for insertion
+    let ratedItems = [];
+    let newRatings = [];
+    let errors = [];
+
+    // Step 3: Check each item from orderItems and prepare ratings
+    for (let i = 0; i < orderItems.length; i++) {
+      const itemId = orderItems[i].item_id;
+console.log(itemId);
+      // Check if user already rated the item
+      const [existingRating] = await pool.query(
+        `SELECT * FROM user_rated_items WHERE user_id = ? AND item_id = ?`,
+        [userId, itemId]
+      );
+console.log("existing rating : ", existingRating);
+      if (existingRating.length > 0) {
+        ratedItems.push(itemId); // User has already rated this item, skip it
+      } else {
+        // User has not rated this item, so insert the rating
+        const rating = ratings; // Get the rating from the provided ratings
+        console.log(rating);
+        if (rating) {
+          newRatings.push({ itemId, rating });
+        }
+      }
+    }
+
+    // Step 4: Insert new ratings into `user_rated_items` and update `items_rating`
+    for (let i = 0; i < newRatings.length; i++) {
+      const { itemId, rating } = newRatings[i];
+console.log(itemId);
+      // Insert into user_rated_items
+      await pool.query(
+        `INSERT INTO user_rated_items (item_id, user_id, rating) VALUES (?, ?, ?)`,
+        [itemId, userId, rating]
+      );
+
+      // Increment count and update total ratings in items_rating
+      await pool.query(
+        `INSERT INTO items_rating (item_id, rating, total_ratings) 
+        VALUES (?, ?, 1) 
+        ON DUPLICATE KEY UPDATE 
+        total_ratings = total_ratings + 1`,
+        [itemId, rating]
+      );
+    }
+
+    return res.status(200).json({
+      status: "Success",
+      message: "Ratings updated successfully.",
+      ratedItems: ratedItems,
+      newRatings: newRatings
+    });
+  } catch (err) {
+    return next(new AppError(500, "Internal Server Error", err));
+  }
+});
+
+
+
+exports.rateRestaurant = asyncChoke(async (req, res, next) => {
+  const userId = req.user.id; // Authenticated user ID
+  const { restaurant_id, rating } = req.body; // Restaurant ID and rating from request body
+
+  try {
+    if (!restaurant_id || !rating) {
+      return next(new AppError(400, "Provide both restaurant_id and rating."));
+    }
+
+    // Step 1: Check if the user has already rated this restaurant
+    const [existingRating] = await pool.query(
+      `SELECT * FROM user_rated_restaurants WHERE user_id = ? AND restaurant_id = ?`,
+      [userId, restaurant_id]
+    );
+
+    if (existingRating.length > 0) {
+      // User has already rated this restaurant
+      return next(new AppError(400, "You have already rated this restaurant."));
+    }
+
+    // Step 2: Insert the new rating into `user_rated_restaurants`
+    await pool.query(
+      `INSERT INTO user_rated_restaurants (restaurant_id, user_id, rating) VALUES (?, ?, ?)`,
+      [restaurant_id, userId, rating]
+    );
+
+    // Step 3: Increment `total_ratings` in `restaurants_rating`
+    await pool.query(
+      `INSERT INTO restaurants_rating (restaurant_id, rating_count)
+       VALUES (?, 1)
+       ON DUPLICATE KEY UPDATE rating_count = rating_count + 1`,
+      [restaurant_id]
+    );
+
+    return res.status(200).json({
+      status: "Success",
+      message: "Your rating has been recorded successfully.",
+    });
+  } catch (err) {
+    console.log(err);
+    return next(new AppError(500, "Internal Server Error", err));
+  }
+});
 
 

@@ -17,15 +17,31 @@ exports.isValidPhoneNumber = function(phoneNo) {
 
 
   exports.calculateGrowthRate = (current, previous) => {
-    // Handle the case where previous is zero to avoid division by zero
-    if (previous === 0) {
-      return current > 0 ? 100 : 0; // If current is greater than 0, growth is 100%; else, it's 0%.
+    // Handle edge cases explicitly
+    if (previous === 0 || previous === null || previous === undefined) {
+      return current > 0 ? 100 : 0; // If there's no previous value, assume 100% growth if current is positive.
+    }
+    if (current === 0 && previous > 0) {
+      return -100; // If current is 0 but there was a previous value, it's a -100% decline.
     }
   
-    // Calculate the growth rate
+    // Calculate growth rate
     const growthRate = ((current - previous) / previous) * 100;
   
-    // Return the growth rate rounded to 2 decimal places
+    // Round to 2 decimal places and return
     return Math.round(growthRate * 100) / 100;
   };
   
+
+
+
+exports.convertExpiryDate = (valid) => {
+    // Split MM/YY
+    const [month, year] = valid.split('/');
+
+    // Convert YY to YYYY
+    const fullYear = `20${year}`;
+
+    // Return in YYYY-MM-01 format
+    return `${fullYear}-${month}-01`;
+}
