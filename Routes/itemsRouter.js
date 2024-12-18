@@ -4,8 +4,8 @@ const auth = require('../Controllers/authController');
 const {protect} = require('../Controllers/restaurantAuthController');
 const router = express.Router();
 
-router.post('/:id', createItem);
-router.get('/:id', readItems);
+router.post('/:id',protect, createItem);
+router.get('/:id',protect, readItems);
 router.post('/customisation/addTitle/:id', protect, createTitle);
 router.get('/customisation/getTitles/:id', protect, getTitlesByItemId);
 router.post('/customisation/addOption/:id', createOption);

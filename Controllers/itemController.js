@@ -7,20 +7,35 @@ const { uploadFile } = require('../Config/aws');
 // Create Item by category id
 
 
+
 exports.createItem = asyncChoke(async (req, res, next) => {
     const { name, description, price, type } = req.body;
     const { id } = req.params;
+    // console.log(req.user);
+    const restaurant_id = req.user.id;
     const image = req.file;
  
-    if (!name || !description || !price || !type || !image) {
-        return next(new AppError(400, "Fill all fields, including an image file"));
+    if (!name || !description || !price || !type || !id) {
+        return next(new AppError(400, "Fill all fields"));
     }
 
- 
+
+    // console.log("this is id",id);
     if (type !== "veg" && type !== "non-veg") {
         return next(new AppError(400, `Type can't be ${type}`));
     }
+    
 
+    const [checkCategory] = await pool.query(`
+        SELECT c.id, m.id, r.id
+        FROM categories c
+        JOIN menus m ON c.menu_id = m.id
+        JOIN restaurants r ON m.restaurant_id = r.id
+        WHERE c.id = ?`,[id]);
+        
+    if (checkCategory.length === 0 || checkCategory[0].id === null || checkCategory[0].menu_id === null || checkCategory[0].restaurant_id === null) {
+        return next(new AppError(404, "Category not found or not associated with this menu"));
+    }
 
     const [check] = await pool.query(`SELECT * FROM items WHERE category_id = ? AND name = ? AND type = ?`, [id, name, type]);
     if (check.length >= 1) {
@@ -28,16 +43,17 @@ exports.createItem = asyncChoke(async (req, res, next) => {
     }
 
 
-    let imageUrl;
-    try {
-        const result = await uploadFile(image, `${name}-${Date.now()}`); // Pass a unique key for the image file
-        imageUrl = result.Location; // S3 response contains URL in `Location`
-    } catch (error) {
-        return next(new AppError(500, "Failed to upload image"));
-    }
 
-    const query = `INSERT INTO items (name, price, description, category_id, type, image_url) VALUES (?,?,?,?,?,?)`;
-    const [result] = await pool.query(query, [name, price, description, id, type, imageUrl]);
+    // let imageUrl;
+    // try {
+    //     const result = await uploadFile(image, `${name}-${Date.now()}`); // Pass a unique key for the image file
+    //     imageUrl = result.Location; // S3 response contains URL in `Location`
+    // } catch (error) {
+    //     return next(new AppError(500, "Failed to upload image"));
+    // }
+
+    const query = `INSERT INTO items (name, price, description, category_id, type) VALUES (?,?,?,?,?)`;
+    const [result] = await pool.query(query, [name, price, description, id, type]);
 
     if (result.affectedRows === 0) {
         return next(new AppError(400, "Failed to create item"));
@@ -46,9 +62,10 @@ exports.createItem = asyncChoke(async (req, res, next) => {
     res.status(200).json({
         status: "success",
         message: "Item created successfully",
-        data: { id: result.insertId, name, description, price, type, imageUrl }
+        data: { id: result.insertId, name, description, price, type}
     });
 });
+
 
 
 // Create title by item_id
@@ -104,6 +121,7 @@ console.log(make_price_option);
         message: "Customisation title created successfully!"
     });
 });
+
 
 
 exports.updateSelectionType = asyncChoke(async (req, res, next) => {

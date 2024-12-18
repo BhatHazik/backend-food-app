@@ -6,13 +6,17 @@ const {asyncChoke} = require('../Utils/asyncWrapper');
 exports.addCategoryById = asyncChoke(async (req, res, next) => {
   const { categoryName } = req.body;
   const restaurant_id = req.user.id;
-  
+  console.log(restaurant_id);
   if(!categoryName || categoryName === ""){
     return next(new AppError(401, "Category name required!"));
   }
+  const [approved]= await pool.query(`SELECT * FROM restaurants WHERE id = ? AND approved = ?`, [restaurant_id, true]);
+  if(!approved.length || approved.length === 0){
+    return next(new AppError(401, "Restaurant is currently not approved!"));
+  }
   // Fetch menu for the given restaurant ID
   const RestaurantQuery = `SELECT * FROM menus WHERE restaurant_id = ?`;
-  const [menu] = await pool.query(RestaurantQuery, [restaurant_id]);
+  const [menu] = await pool.query(RestaurantQuery, [restaurant_id, true]);
 
   if (!menu.length) {
       return next(new AppError(404, "No menu found for the given restaurant"));
@@ -44,12 +48,18 @@ exports.addCategoryById = asyncChoke(async (req, res, next) => {
 
 
 
+
 // get all categories by menu_id
+
 
 
 exports.getAllCategories = asyncChoke(async (req, res, next) => {
     const restaurant_id = req.user.id;
   
+    const [approved]= await pool.query(`SELECT * FROM restaurants WHERE id = ? AND approved = ?`, [restaurant_id, true]);
+  if(!approved.length || approved.length === 0){
+    return next(new AppError(401, "Restaurant is currently not approved!"));
+  }
     // Fetch menu for the given restaurant ID
     const RestaurantQuery = 'SELECT * FROM menus WHERE restaurant_id = ?';
     const [menu] = await pool.query(RestaurantQuery, [restaurant_id]);
@@ -76,7 +86,7 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
       GROUP BY category_id
     `;
     const [itemCounts] = await pool.query(itemCountQuery, [categoryIds]);
-  
+  console.log(itemCounts);
     // Create a map of category_id to item_count for easy lookup
     const itemCountMap = itemCounts.reduce((acc, itemCount) => {
       acc[itemCount.category_id] = itemCount.item_count;
@@ -96,11 +106,16 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
   });
   
 
+
   exports.DeleteCategory = asyncChoke(async (req, res, next) => {
     const { categoryId } = req.params;
     const restaurant_id = req.user.id;
   
     try {
+      const [approved]= await pool.query(`SELECT * FROM restaurants WHERE id = ? AND approved = ?`, [restaurant_id, true]);
+  if(!approved.length || approved.length === 0){
+    return next(new AppError(401, "Restaurant is currently not approved!"));
+  }
       // Fetch menu for the given restaurant ID
       const RestaurantQuery = 'SELECT id FROM menus WHERE restaurant_id = ?';
       const [menu] = await pool.query(RestaurantQuery, [restaurant_id]);
@@ -153,10 +168,10 @@ exports.getAllCategories = asyncChoke(async (req, res, next) => {
     `;
     let rows 
     const [dataRows] = await pool.query(query);
-    rows = dataRows[0]
+    rows = dataRows
     res.status(200).json({
       status: "Success",
-      data: {id : rows.id, name:rows.name, image_url:rows.image_url},
+      data: rows,
     });
   });
   

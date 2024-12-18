@@ -213,40 +213,58 @@ exports.getItemsCart = asyncChoke(async (req, res, next) => {
 
 
 
-exports.itemQuantity = asyncChoke(async(req, res, next) =>{
-    try{
-    const user_id = req.user.id;
-    const {quantity} = req.body;
-    const { id: cart_item_id } = req.params;
-    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id])
-    const cart_id = cart[0].id;
-    const [check] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND id = ?`,[cart_id,cart_item_id]);
-    if(check.length < 1){
-        return next(new AppError(404, "This cart item does not belong to your cart"));
-    }
-    if(quantity < 1){
-        const [cart_item] = await pool.query(`SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`,[cart_item_id]);
-        if(cart_item.length > 0){
-            return next(new AppError(400, "This " ));
+exports.itemQuantity = asyncChoke(async (req, res, next) => {
+    try {
+        const user_id = req.user.id;
+        const { quantity } = req.body;
+        const { id: cart_item_id } = req.params;
+
+        // Retrieve the user's cart
+        const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [user_id]);
+        if (cart.length === 0) {
+            return next(new AppError(404, "Cart not found"));
         }
-      const removeQuery = await pool.query(`DELETE FROM cart_items WHERE id = ?`, [cart_item_id]);
-      return res.json({
-        status :"success",
-        message: "your item has been removed successfully"
-      })
-    }
-    const item_total = check[0].item_total * quantity;
-    console.log(item_total);
-    const [itemQuantity] = await pool.query(`UPDATE cart_items SET quantity = ?, item_total = ? WHERE id = ?`, [quantity, item_total, cart_item_id]);
-    
-    res.json({
-        status:"success",
-        itemQuantity
-    });
-    }catch(err){
+        const cart_id = cart[0].id;
+
+        // Check if the cart item exists in the user's cart
+        const [check] = await pool.query(`SELECT * FROM cart_items WHERE cart_id = ? AND id = ?`, [cart_id, cart_item_id]);
+        if (check.length < 1) {
+            return next(new AppError(404, "This cart item does not belong to your cart"));
+        }
+
+        // Handle quantity less than 1
+        if (quantity < 1) {
+            // Check if there are customizations associated with the cart item
+            const [cart_item_customizations] = await pool.query(`SELECT * FROM cart_item_customizations WHERE cart_item_id = ?`, [cart_item_id]);
+            
+            // Delete all customizations associated with the cart item
+            if (cart_item_customizations.length > 0) {
+                await pool.query(`DELETE FROM cart_item_customizations WHERE cart_item_id = ?`, [cart_item_id]);
+            }
+
+            // Remove the cart item
+            await pool.query(`DELETE FROM cart_items WHERE id = ?`, [cart_item_id]);
+
+            return res.json({
+                status: "success",
+                message: "Your item and its customizations have been removed successfully"
+            });
+        }
+
+        // Update the quantity and item total
+        const item_total = check[0].item_total * quantity;
+        await pool.query(`UPDATE cart_items SET quantity = ?, item_total = ? WHERE id = ?`, [quantity, item_total, cart_item_id]);
+
+        res.json({
+            status: "success",
+            message: "Cart item quantity updated successfully",
+        });
+    } catch (err) {
         console.log(err);
+        next(err); // Pass the error to the global error handler
     }
-})
+});
+
 
 
 

@@ -15,16 +15,15 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
   const [restaurantCheck] = await pool.query(
     `SELECT res.restaurant_name,
      res_rating.rating_count,
-     res_rating.rating,
      res_address.street,
      res_address.latitude AS restaurant_latitude,
      res_address.longitude AS restaurant_longitude,
      cat.category
      FROM restaurants res 
-     LEFT JOIN restaurants_rating res_rating
-     ON res.id = res_rating.restaurant_id 
      LEFT JOIN restaurantaddress res_address
      ON res.id = res_address.restaurant_id
+     LEFT JOIN restaurants_rating res_rating
+     ON res.id = res_rating.restaurant_id
      LEFT JOIN menus menu
      ON menu.restaurant_id = res.id
      LEFT JOIN categories cat
@@ -37,20 +36,29 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     return next(new AppError(404, "Restaurant not found!"));
   }
 
+  // Calculate the average rating for the restaurant from user_rated_restaurants
+  const [restaurantAvgRating] = await pool.query(
+    `SELECT ROUND(IFNULL(AVG(user_rated_restaurants.rating), 0), 2) AS avg_rating,
+            COUNT(user_rated_restaurants.id) AS rating_count
+     FROM user_rated_restaurants
+     WHERE restaurant_id = ?`,
+    [id]
+  );
+
   restaurantDetails = {
     restaurant_name: restaurantCheck[0].restaurant_name,
     street: restaurantCheck[0].street,
-    rating_count: restaurantCheck[0].rating_count,
-    rating: restaurantCheck[0].rating,
+    avg_rating: restaurantAvgRating[0].avg_rating, // Average rating for the restaurant
+    rating_count: restaurantAvgRating[0].rating_count, // Total ratings count
     categories: restaurantCheck.map((row) => row.category),
     restaurant_latitude: restaurantCheck[0].restaurant_latitude,
     restaurant_longitude: restaurantCheck[0].restaurant_longitude,
   };
 
   const radius = 10; // Radius in kilometers
-  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
-  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
-  const bufferTime = 5; // Buffer time in minutes for range
+  const cookingPackingTime = 10;
+  const averageSpeed = 0.5;
+  const bufferTime = 5;
 
   const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(${restaurantDetails.restaurant_latitude})) * cos(radians(${restaurantDetails.restaurant_longitude}) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(${restaurantDetails.restaurant_latitude}))))`;
 
@@ -73,8 +81,8 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
 
     const distance = radiusRows[0].distance;
     const travelTime = distance / averageSpeed; // in minutes
-    const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
-    const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
+    const minTime = travelTime - bufferTime + cookingPackingTime;
+    const maxTime = travelTime + bufferTime + cookingPackingTime;
     const deliveryTime = `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`;
 
     const menuIdQuery = "SELECT id FROM menus WHERE restaurant_id = ?";
@@ -94,10 +102,21 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     for (let category of categoriesRows) {
       const categoryId = category.id;
 
-      // Filter items by type (veg or non-veg) if 'type' query parameter is provided
       const itemsQuery = type
-        ? "SELECT * FROM items WHERE category_id = ? AND type = ?"
-        : "SELECT * FROM items WHERE category_id = ?";
+        ? `SELECT items.*, 
+                  ROUND(IFNULL(AVG(user_rated_items.rating), 0), 2) AS avg_rating
+           FROM items
+           LEFT JOIN user_rated_items 
+           ON items.id = user_rated_items.item_id
+           WHERE items.category_id = ? AND items.type = ?
+           GROUP BY items.id`
+        : `SELECT items.*, 
+                  ROUND(IFNULL(AVG(user_rated_items.rating), 0), 2) AS avg_rating
+           FROM items
+           LEFT JOIN user_rated_items 
+           ON items.id = user_rated_items.item_id
+           WHERE items.category_id = ?
+           GROUP BY items.id`;
 
       const [itemsRows] = await pool.query(
         itemsQuery,
@@ -114,7 +133,15 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
           .slice(0, 10);
 
         topSellerItems = [...topSellerItems, ...topItems].slice(0, 10);
-        menuData[category.category] = topItems;
+
+        menuData[category.category] = topItems.map((item) => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          type: item.type,
+          order_count: item.order_count,
+          avg_rating: item.avg_rating, // Average rating included for items
+        }));
       }
     }
 
@@ -124,9 +151,9 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
       status: "Success",
       data: {
         menuId: menuId,
-        rating: restaurantDetails.rating,
+        avgRating: restaurantDetails.avg_rating, // Average restaurant rating
+        ratingCount: restaurantDetails.rating_count, // Total ratings count
         restaurantName: restaurantDetails.restaurant_name,
-        ratingCount: restaurantDetails.rating_count,
         street: restaurantDetails.street,
         deliveryTime: deliveryTime,
         categories: restaurantDetails.categories.slice(0, 2),
@@ -138,6 +165,8 @@ exports.getMenuById = asyncChoke(async (req, res, next) => {
     next(new AppError(500, "Internal server error"));
   }
 });
+
+
 
 
 

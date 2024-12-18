@@ -1,13 +1,21 @@
 const socketIo = require("socket.io");
 const { socketAuth } = require("./socketAuth");
 const AppError = require("./error");
+const { pool } = require("../Config/database");
 
 let io;
+
+const allowedOrigins = [
+  'http://192.168.100.42:8081',
+  'http://localhost:8081',
+  'http://192.168.100.43:5173', 
+  'http://localhost:5173',
+];
 
 function initWebSocket(server) {
   io = socketIo(server, {
     cors: {
-      origin: '*',
+      origin: allowedOrigins,
       methods: ["GET", "POST"],
       credentials: true,
     },
@@ -32,13 +40,13 @@ function initWebSocket(server) {
     console.log('A user connected:', socket.id);
 
     // Handle restaurant connection
-    socket.on('restaurantConnect', (restaurantId) => {
-      handleRestaurantConnect(socket, restaurantId);
+    socket.on('restaurantConnect', () => {
+      handleRestaurantConnect(socket);
     });
 
     // Handle user connection
-    socket.on('userConnect', (userId) => {
-      handleUserConnect(socket, userId);
+    socket.on('userConnect', () => {
+      handleUserConnect(socket);
     });
 
     // Handle delivery boy connection
@@ -59,16 +67,16 @@ function initWebSocket(server) {
 }
 
 // Handle user connection
-function handleUserConnect(socket, userId) {
-  io.connectedUsers[userId] = socket.id;  // Store user's socket ID
-  console.log(`User ${userId} connected with socket ID: ${socket.id}`);
+function handleUserConnect(socket) {
+  io.connectedUsers[socket.user.id] = socket.id;  // Store user's socket ID
+  console.log(`User ${socket.user.id} connected with socket ID: ${socket.id}`);
 }
 
 // Handle restaurant connection
-function handleRestaurantConnect(socket, restaurantId) {
-  io.connectedRestaurants[restaurantId] = socket.id;  // Store restaurant's socket ID
+function handleRestaurantConnect(socket) {
+  io.connectedRestaurants[socket.user.id] = socket.id;  // Store restaurant's socket ID
   
-  console.log(`Restaurant ${restaurantId} connected with socket ID: ${socket.id}`);
+  console.log(`Restaurant ${socket.user.id} connected with socket ID: ${socket.id}`);
 }
 
 // Handle delivery boy connection
@@ -90,15 +98,51 @@ function handleDeliveryBoyConnect(socket, data) {
 
 
 // Handle delivery boy location update
-function handleUpdateDeliveryBoyLocation({ deliveryBoyId, location }) {
+async function handleUpdateDeliveryBoyLocation({ deliveryBoyId, location, order_id }) {
   if (io.connectedDeliveryBoys[deliveryBoyId]) {
     // Update the delivery boy's location
     io.connectedDeliveryBoys[deliveryBoyId].location = location;
-    console.log(`Delivery Boy ${deliveryBoyId} location updated to: ${location}`);
+
+    // Fetch order details to get user and restaurant information
+    const [order] = await pool.query(`SELECT * FROM orders WHERE id = ?`, [order_id]);
+
+    if (!order || order.length === 0) {
+      throw new Error(`Order with id ${order_id} not found`);
+    }
+
+    if (order[0].del_id !== deliveryBoyId) {
+      throw new Error(`This order does not belong to delivery boy with id ${deliveryBoyId}`);
+    }
+
+    const userId = order[0].user_id; // Get user ID from the order
+    const restaurantId = order[0].restaurant_id; // Get restaurant ID from the order
+
+    // Notify the user
+    if (io.connectedUsers && io.connectedUsers[userId]) {
+      io.to(io.connectedUsers[userId]).emit('deliveryBoyLocationUpdate', {
+        deliveryBoyId,
+        location,
+      });
+    } else {
+      console.log(`User with ID ${userId} is not connected.`);
+    }
+
+    // Notify the restaurant
+    if (io.connectedRestaurants && io.connectedRestaurants[restaurantId]) {
+      io.to(io.connectedRestaurants[restaurantId]).emit('deliveryBoyLocationUpdate', {
+        deliveryBoyId,
+        location,
+      });
+    } else {
+      console.log(`Restaurant with ID ${restaurantId} is not connected.`);
+    }
+
+    console.log(`Delivery Boy ${deliveryBoyId} location updated to:`, location);
   } else {
     console.log(`Delivery Boy ${deliveryBoyId} is not connected.`);
   }
 }
+
 
 
 

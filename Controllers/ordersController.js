@@ -22,6 +22,62 @@ exports.createOrder = async (req, res, next) => {
       return next(new AppError(404, "Address not selected"));
     }
 
+    const [cart] = await pool.query(`SELECT * FROM cart WHERE user_id = ?`, [
+      user_id,
+    ]);
+    if (!cart.length) {
+      return next(new AppError(404, "Cart not found for the given user"));
+    }
+  
+    const cart_id = cart[0].id;
+    // Query to fetch and sum item totals from `cart_items`
+    const itemTotalQuery = `
+          SELECT SUM(item_total) AS total_amount
+          FROM cart_items
+          WHERE cart_id = ?
+      `;
+  
+    const [result] = await pool.query(itemTotalQuery, [cart_id]);
+    if (!result || !result.length || !result[0].total_amount) {
+      return next(
+        new AppError(404, "No items found in the cart for the given user")
+      );
+    }
+  // Extract item_total from the result
+  let item_total = parseFloat(result[0].total_amount);
+  
+  
+    if (offerCode) {
+      const [offer] = await pool.query(
+        `SELECT * FROM offers WHERE code = ? AND status = 'active'`,
+        [offerCode]
+      );
+      console.log("ok", offer.length);
+      if (offer.length === 0) {
+        return next(new AppError(400, "Invalid or expired offer code"));
+      }
+      const offer_id = offer[0].id;
+  
+      // Check if the user has already used this offer
+      const [userOffer] = await pool.query(
+        `SELECT * FROM user_used_offer WHERE user_id = ? AND offer_id = ?`,
+        [user_id, offer_id]
+      );
+      if (userOffer.length) {
+        return next(new AppError(400, "Offer code already been used"));
+      }
+  
+      // Check if the order meets the minimum order amount
+      if (item_total < parseFloat(offer[0].minimum_order_amount)) {
+        return next(
+          new AppError(
+            400,
+            `To apply this offer your order should be a minimum of ${offer[0].minimum_order_amount}`
+          )
+        );
+      }
+    }
+
     // Prepare data for calculating the bill
     const data = {
       user_id: user_id,
@@ -31,8 +87,10 @@ exports.createOrder = async (req, res, next) => {
       userLon: user_address[0].lon,
     };
 
+
     // Calculate the bill
     const billData = await calculateBill(next, data);
+
 
     
     const [insertAddress] = await pool.query(`
@@ -417,15 +475,15 @@ exports.getOrderDetails = asyncChoke(async (req, res, next) => {
   const deliveryTip = 10;
 
   const [user_address] = await pool.query(`SELECT * FROM useraddress WHERE user_id = ? AND selected = ?`,[user_id,true]);
+  if (user_address.length === 0) {
+    return next(new AppError(404, "No address selected"));
+  }
+  console.log(user_address);
   const data = {
     user_id: user_id,
     delivery_tip: deliveryTip,
       userLat: user_address[0].lat,
       userLon: user_address[0].lon
-    
-    
-    
-    
   }
   console.log(data);
   const bill = await calculateBill(next , data);
@@ -726,7 +784,7 @@ exports.getPastOrders = asyncChoke(async (req, res, next) => {
 exports.getAllOrdersRestaurant = asyncChoke(async (req, res, next) => {
   try {
     const { id: restaurant_id } = req.user;
-
+    const {startDate, endDate} = req.query;
     // Fetch all orders for the restaurant
     const [orders] = await pool.query(
       `

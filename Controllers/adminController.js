@@ -1,19 +1,24 @@
-const {pool} = require('../Config/database');
-const AppError = require('../Utils/error');
-const {asyncChoke} = require('../Utils/asyncWrapper');
+const { pool } = require("../Config/database");
+const AppError = require("../Utils/error");
+const { asyncChoke } = require("../Utils/asyncWrapper");
 
-exports.getRestaurantsAdmin = asyncChoke(async(req, res, next)=>{
-  const {approvalType} = req.query;
-    try{
-      if(approvalType !== 'pending' && approvalType !== 'approved'){
-        return next(new AppError(400, "Invalid approval type! Please provide pending or approved for restaurants."))
-      }
-      let approval;
-      if(approvalType === 'approved'){
-        approval = 1;
-      } else if(approvalType === 'pending'){
-        approval = 0;
-      }
+exports.getRestaurantsAdmin = asyncChoke(async (req, res, next) => {
+  const { approvalType } = req.query;
+  try {
+    if (approvalType !== "pending" && approvalType !== "approved") {
+      return next(
+        new AppError(
+          400,
+          "Invalid approval type! Please provide pending or approved for restaurants."
+        )
+      );
+    }
+    let approval;
+    if (approvalType === "approved") {
+      approval = 1;
+    } else if (approvalType === "pending") {
+      approval = 0;
+    }
     const qurey = `SELECT 
   -- Restaurant Information
   r.id AS restaurant_id,
@@ -67,9 +72,9 @@ LEFT JOIN restaurantaddress ra ON ra.restaurant_id = r.id
 LEFT JOIN restaurant_docs rd ON rd.restaurant_id = r.id
 LEFT JOIN restaurants_working rw ON rw.restaurant_id = r.id
 WHERE approved = ?;
-`
+`;
     const [results] = await pool.query(qurey, [approval]);
-    const structuredData = results.map(row => ({
+    const structuredData = results.map((row) => ({
       restaurant_info: {
         id: row.restaurant_id,
         owner_name: row.owner_name,
@@ -83,7 +88,7 @@ WHERE approved = ?;
         bank_IFSC: row.bank_IFSC,
         bank_account_no: row.bank_account_no,
         approved: row.approved,
-        updated_at: row.updated_at
+        updated_at: row.updated_at,
       },
       address_info: {
         id: row.address_id,
@@ -94,7 +99,7 @@ WHERE approved = ?;
         city: row.city,
         state: row.state,
         latitude: row.latitude,
-        longitude: row.longitude
+        longitude: row.longitude,
       },
       documents_info: {
         id: row.document_id,
@@ -103,7 +108,7 @@ WHERE approved = ?;
         FSSAI_no: row.doc_FSSAI_no,
         outlet_type: row.doc_outlet_type,
         bank_IFSC: row.doc_bank_IFSC,
-        bank_account_no: row.doc_bank_account_no
+        bank_account_no: row.doc_bank_account_no,
       },
       working_info: {
         id: row.working_id,
@@ -115,89 +120,106 @@ WHERE approved = ?;
         saturday: row.saturday,
         sunday: row.sunday,
         opening_time: row.opening_time,
-        closing_time: row.closing_time
-      }
+        closing_time: row.closing_time,
+      },
     }));
-    
-   
-    
-    if(results.length > 0){
+
+    if (results.length > 0) {
       res.status(200).json({
-        status: 'Success',
+        status: "Success",
         data: structuredData,
       });
-    } else{
-      return next(new AppError(404, `No Restaurant Approvals Found!`))
+    } else {
+      return next(new AppError(404, `No Restaurant Approvals Found!`));
     }
-    
-    } catch (error) {
-        // console.error('Error getting all unApproved restaurants:', error);
-        res.status(500).json({
-          status: 'Error',
-          message: 'Internal server error',
-        });
-      }
-});
-
-
-
-exports.approveRestaurants = asyncChoke(async(req, res, next)=>{
-        const {id} = req.params;
-        const {approvalType} = req.query;
-        try{
-          if(approvalType !== 'pending' && approvalType !== 'approved'){
-            return next(new AppError(400, "Invalid approval type! Please provide pending or approved for restaurants."))
-          }
-          let approval;
-          if(approvalType === 'approved'){
-            approval = 1;
-          } else if(approvalType === 'pending'){
-            approval = 0;
-          }
-
-        const [check] = await pool.query(`SELECT * FROM restaurants WHERE id = ?`, [id]);
-        if(check.length <= 0){
-          return next(new AppError(404, `Restaurant with id '${id}' not found`))
-        }
-        if(check[0].approved === 1 && approval === 1){
-          return next(new AppError(400, `Restaurant with id '${id}' is already approved`))
-        }
-        
-        const query = `UPDATE restaurants SET approved = ? where id = ?`
-        const result = await pool.query(query, [approval , id]);
-    if (result.affectedRows === 0) {
-      return next(new AppError(400, `can't ${approvalType} restaurant with id '${id}'`))
-    }
-    const [check2] = await pool.query(`SELECT * FROM menus WHERE restaurant_id = ?`, [id])
-    if(check2.length === 0){
-      const menuAddQuery = `INSERT INTO menus (name,restaurant_id) VALUES (?,?)`
-      const insertValues = [`Menu-${id}`,id];
-      const [Menu] = await pool.query(menuAddQuery, insertValues);
-      if(Menu.affectedRows=== 0){
-        return next(new AppError(400, `error while adding menu to this restaurant ${id}`))
-      }
-    }
-    
-    res.status(200).json({
-      status: 'Success',
-      message: `Restaurant with id '${id}' set to ${approvalType} successfully`,
+  } catch (error) {
+    // console.error('Error getting all unApproved restaurants:', error);
+    res.status(500).json({
+      status: "Error",
+      message: "Internal server error",
     });
-  }catch(err){
-    return next(new AppError(500, 'Internal Server Error', err))
   }
 });
 
-
-
-exports.getDeleveryBoysAdmin = asyncChoke(async(req, res, next)=>{
-  const {approvalType} = req.query;
-  try{
-
-    if(approvalType !== 'approved' && approvalType !== 'pending' && approvalType !== 'declined'){
-      return next(new AppError(400, 'Invalid approval type. Use approved, pending, declined or all'))
+exports.approveRestaurants = asyncChoke(async (req, res, next) => {
+  const { id } = req.params;
+  const { approvalType } = req.query;
+  try {
+    if (approvalType !== "pending" && approvalType !== "approved") {
+      return next(
+        new AppError(
+          400,
+          "Invalid approval type! Please provide pending or approved for restaurants."
+        )
+      );
+    }
+    let approval;
+    if (approvalType === "approved") {
+      approval = 1;
+    } else if (approvalType === "pending") {
+      approval = 0;
     }
 
-  const qurey = `SELECT 
+    const [check] = await pool.query(`SELECT * FROM restaurants WHERE id = ?`, [
+      id,
+    ]);
+    if (check.length <= 0) {
+      return next(new AppError(404, `Restaurant with id '${id}' not found`));
+    }
+    if (check[0].approved === 1 && approval === 1) {
+      return next(
+        new AppError(400, `Restaurant with id '${id}' is already approved`)
+      );
+    }
+
+    const query = `UPDATE restaurants SET approved = ? where id = ?`;
+    const result = await pool.query(query, [approval, id]);
+    if (result.affectedRows === 0) {
+      return next(
+        new AppError(400, `can't ${approvalType} restaurant with id '${id}'`)
+      );
+    }
+    const [check2] = await pool.query(
+      `SELECT * FROM menus WHERE restaurant_id = ?`,
+      [id]
+    );
+    if (check2.length === 0) {
+      const menuAddQuery = `INSERT INTO menus (name,restaurant_id) VALUES (?,?)`;
+      const insertValues = [`Menu-${id}`, id];
+      const [Menu] = await pool.query(menuAddQuery, insertValues);
+      if (Menu.affectedRows === 0) {
+        return next(
+          new AppError(400, `error while adding menu to this restaurant ${id}`)
+        );
+      }
+    }
+
+    res.status(200).json({
+      status: "Success",
+      message: `Restaurant with id '${id}' set to ${approvalType} successfully`,
+    });
+  } catch (err) {
+    return next(new AppError(500, "Internal Server Error", err));
+  }
+});
+
+exports.getDeleveryBoysAdmin = asyncChoke(async (req, res, next) => {
+  const { approvalType } = req.query;
+  try {
+    if (
+      approvalType !== "approved" &&
+      approvalType !== "pending" &&
+      approvalType !== "declined"
+    ) {
+      return next(
+        new AppError(
+          400,
+          "Invalid approval type. Use approved, pending, declined or all"
+        )
+      );
+    }
+
+    const qurey = `SELECT 
   db.id AS delivery_boy_id,
   db.first_name,
   db.last_name,
@@ -236,95 +258,102 @@ JOIN delivery_bank dbb ON dbb.del_id = db.id
 JOIN delivery_vehicles dv ON dv.del_id = db.id
 WHERE db.approved = ?
 
-`
-  const [results] = await pool.query(qurey, [approvalType]);
-  const structuredData = results.map(row => ({
-    personal_info: {
-      id: row.delivery_boy_id,
-      first_name: row.first_name,
-      last_name: row.last_name,
-      gender: row.gender,
-      profile_pic: row.profile_pic,
-      approved: row.approved,
-      phone_no: row.phone_no
-    },
-    documents: {
-      id: row.delivery_doc_id,
-      adhar_front: row.adhar_front,
-      adhar_back: row.adhar_back,
-      pan_front: row.pan_front,
-      pan_back: row.pan_back,
-      dl_front: row.dl_front,
-      dl_back: row.dl_back
-    },
-    bank_details: {
-      id: row.delivery_bank_id,
-      account_no: row.account_no,
-      bank_name: row.bank_name,
-      IFSC_code: row.IFSC_code
-    },
-    vehicle_info: {
-      id: row.delivery_vehicle_id,
-      vehicle_no: row.vehicle_no,
-      registration_no: row.registration_no,
-      vehicle_type: row.vehicle_type,
-      vehicle_image: row.vehicle_image
-    },
-    work_info: {
-      id: row.delivery_work_id,
-      work_type: row.work_type,
-      work_area: row.work_area
-    }
-  }));
-  res.status(200).json({
-      status: 'Success',
+`;
+    const [results] = await pool.query(qurey, [approvalType]);
+    const structuredData = results.map((row) => ({
+      personal_info: {
+        id: row.delivery_boy_id,
+        first_name: row.first_name,
+        last_name: row.last_name,
+        gender: row.gender,
+        profile_pic: row.profile_pic,
+        approved: row.approved,
+        phone_no: row.phone_no,
+      },
+      documents: {
+        id: row.delivery_doc_id,
+        adhar_front: row.adhar_front,
+        adhar_back: row.adhar_back,
+        pan_front: row.pan_front,
+        pan_back: row.pan_back,
+        dl_front: row.dl_front,
+        dl_back: row.dl_back,
+      },
+      bank_details: {
+        id: row.delivery_bank_id,
+        account_no: row.account_no,
+        bank_name: row.bank_name,
+        IFSC_code: row.IFSC_code,
+      },
+      vehicle_info: {
+        id: row.delivery_vehicle_id,
+        vehicle_no: row.vehicle_no,
+        registration_no: row.registration_no,
+        vehicle_type: row.vehicle_type,
+        vehicle_image: row.vehicle_image,
+      },
+      work_info: {
+        id: row.delivery_work_id,
+        work_type: row.work_type,
+        work_area: row.work_area,
+      },
+    }));
+    res.status(200).json({
+      status: "Success",
       data: structuredData,
     });
   } catch (error) {
-      console.error('Error getting all unApproved DeleveryBoys:', error);
-      return next(new AppError(500, 'Internal Server Error', error))
-    }   
-})
+    console.error("Error getting all unApproved DeleveryBoys:", error);
+    return next(new AppError(500, "Internal Server Error", error));
+  }
+});
 
+exports.approveDeleveryBoys = asyncChoke(async (req, res, next) => {
+  const { id } = req.params;
+  const { approveType } = req.query;
+  try {
+    if (approveType !== "approved" && approveType !== "declined") {
+      return next(
+        new AppError(
+          400,
+          "Invalid approval type. Use approved, pending, declined or all"
+        )
+      );
+    }
 
+    const [check] = await pool.query(
+      `SELECT * FROM delivery_boys WHERE id =?`,
+      [id]
+    );
+    if (check.length <= 0) {
+      return next(new AppError(404, `Delivery boy with id '${id}' not found`));
+    }
 
-exports.approveDeleveryBoys = asyncChoke(async(req, res,next)=>{
-  const {id} = req.params;
-  const {approveType} = req.query;
-  try{
-      if(approveType!== 'approved' && approveType!== 'declined'){
-        return next(new AppError(400, 'Invalid approval type. Use approved, pending, declined or all'))
-      }
+    if (approveType === check[0].approved) {
+      return next(
+        new AppError(
+          400,
+          `Delivery boy with id '${id}' is already ${approveType}`
+        )
+      );
+    }
 
-      const [check] = await pool.query(`SELECT * FROM delivery_boys WHERE id =?`, [id]);
-      if(check.length <= 0){
-        return next(new AppError(404, `Delivery boy with id '${id}' not found`))
-      }
-      
-      if(approveType === check[0].approved){
-        return next(new AppError(400, `Delivery boy with id '${id}' is already ${approveType}`))
-      }
+    const query = `UPDATE delivery_boys SET approved = ? where id = ?`;
 
-      const query = `UPDATE delivery_boys SET approved = ? where id = ?`
+    await pool.query(query, [approveType, id]);
 
-      await pool.query(query, [approveType , id]);
-  
-  res.status(200).json({
-    status: 'Success',
-    message: `deliveryBoy with id '${id}' ${approveType} successfully`,
-  });
-
-} catch (error) {
-  console.error('Error while Approving DeleveryBoys', error);
-  res.status(500).json({
-    status: 'Error',
-    message: 'Internal server error',
-  });
-}
-})
-
-
-
+    res.status(200).json({
+      status: "Success",
+      message: `deliveryBoy with id '${id}' ${approveType} successfully`,
+    });
+  } catch (error) {
+    console.error("Error while Approving DeleveryBoys", error);
+    res.status(500).json({
+      status: "Error",
+      message: "Internal server error",
+    });
+  }
+});
 
 exports.createMainCategory = asyncChoke(async (req, res, next) => {
   const { name, image_url } = req.body;
@@ -353,9 +382,6 @@ exports.createMainCategory = asyncChoke(async (req, res, next) => {
     },
   });
 });
-
-
-
 
 exports.updateMainCategory = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
@@ -390,10 +416,6 @@ exports.updateMainCategory = asyncChoke(async (req, res, next) => {
   });
 });
 
-
-
-
-
 exports.deleteMainCategory = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
 
@@ -416,5 +438,3 @@ exports.deleteMainCategory = asyncChoke(async (req, res, next) => {
     message: "Category deleted successfully",
   });
 });
-
-

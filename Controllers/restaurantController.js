@@ -4,7 +4,9 @@ const AppError = require("../Utils/error");
 const jwt = require("jsonwebtoken");
 const { isValidPhoneNumber, calculateGrowthRate, createSendToken } = require("../Utils/utils");
 const { getSocketIoServer } = require("../Utils/socketHandler");
-const geolib = require('geolib')
+const geolib = require('geolib');
+const axios = require('axios');
+
 // CREATE Restaurant
 exports.createRestaurant = asyncChoke(async (req, res, next) => {
   const {id:restaurant_id, approved} = req.user;
@@ -191,6 +193,13 @@ exports.createRestaurantDocs = asyncChoke(async(req, res, next)=>{
   const {id:restaurant_id} = req.user;
   console.log(req.body);
   try{
+    const [approved]= await pool.query(`SELECT * FROM restaurants WHERE id = ?`, [restaurant_id]);
+  if(approved[0].approved === 0){
+    return next(new AppError(401, "Restaurant is currently in a pending approval check!"));
+  }
+  if(approved[0].approved === 1){
+    return next(new AppError(409, "Restaurant already has been approved"));
+  }
     if(!pan_no ||!GSTIN_no ||!FSSAI_no ||!outlet_type || !bank_IFSC || !bank_account_no){
       return next(new AppError(400, "All fields are required"));
     }
@@ -232,8 +241,6 @@ exports.getOrderStats = asyncChoke(async (req, res, next) => {
   }
 
   try {
-
-
     
     let query;
     let allDataQuery;
@@ -483,136 +490,152 @@ exports.getMostOrderedItems = asyncChoke(async (req, res, next) => {
 
 
 
-// READ All Approved Restaurants
+
+
 exports.getAllApprovedRestaurants = asyncChoke(async (req, res, next) => {
-  // console.log("i am here");
-  const { latitude, longitude } = req.params;
-  // console.log(latitude,longitude);
-  const radius = 5; // Radius in kilometers
-  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
-  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
-  const bufferTime = 5; // Buffer time in minutes for range
+  const { latitude, longitude } = req.params; // User's location
+  const radius = 10; // Radius in kilometers
 
-  // Haversine formula to calculate distance
-  const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
-
-  // Query to get restaurants within the radius of the user's location and their average ratings
+  // Updated Query to fetch all approved restaurants and their average rating
   const query = `
   SELECT 
-    restaurants.id AS restaurant_id, 
-    restaurants.restaurant_name, 
-    ${haversine} AS distance, 
-    COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
-    GROUP_CONCAT(DISTINCT categories.category) AS categories
+    restaurants.id AS restaurant_id,
+    restaurants.restaurant_name,
+    restaurantaddress.latitude AS restaurant_lat,
+    restaurantaddress.longitude AS restaurant_lng,
+    COALESCE(AVG(user_rated_restaurants.rating), 0) AS avg_rating, -- Fetch avg rating from user_rated_restaurants
+    GROUP_CONCAT(DISTINCT categories.category) AS categories,
+    restaurants_working.cooking_time AS cooking_time -- Correct table reference for cooking_time
   FROM 
     restaurants
   INNER JOIN 
     restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+  INNER JOIN 
+    restaurants_working ON restaurants_working.restaurant_id = restaurants.id
   LEFT JOIN 
-    restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+    user_rated_restaurants ON user_rated_restaurants.restaurant_id = restaurants.id
   LEFT JOIN 
     menus ON menus.restaurant_id = restaurants.id
   LEFT JOIN 
     categories ON categories.menu_id = menus.id
   WHERE 
-    restaurants.approved = true AND ${haversine} <= ?
+    restaurants.approved = true
   GROUP BY 
-    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude, restaurants_working.cooking_time
   ORDER BY 
     avg_rating DESC;
-`;
+  `;
 
+  const [rows] = await pool.query(query);
 
-  const [rows, fields] = await pool.query(query, [radius]);
-console.log(rows);
-  if (rows.length > 0) {
-    const data = rows.map((row) => {
-      const travelTime = row.distance / averageSpeed; // Calculate travel time
-      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
-      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-    
-      return {
-        restaurant_id: row.restaurant_id,
-        restaurant_name: row.restaurant_name,
-        distance: row.distance,
-        avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`,
-        categories: row.categories ? row.categories.split(',') : [], // Convert categories string to array
-      };
-    });
-    
-    res.status(200).json({
-      status: "Success",
-      data,
-    });
-    
-  } else {
+  if (rows.length === 0) {
     return next(new AppError(404, "Restaurants not found in your location"));
   }
+
+  // Function to calculate distance and time using OpenRouteService API
+  const calculateDistanceAndTime = async (userLat, userLon, restLat, restLon) => {
+    const API_KEY = process.env.OPEN_ROUTE_SERVICE_API_KEY;
+    const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${API_KEY}&start=${userLon},${userLat}&end=${restLon},${restLat}`;
+    try {
+      const response = await axios.get(url);
+      const segment = response.data.features[0].properties.segments[0];
+      const distanceInKilometers = segment.distance / 1000; // Convert meters to kilometers
+      const timeInMinutes = segment.duration / 60; // Convert seconds to minutes
+
+      return {
+        distance: distanceInKilometers.toFixed(2),
+        time: Math.ceil(timeInMinutes),
+      };
+    } catch (err) {
+      console.error("Error fetching distance and time:", err.message);
+      return null;
+    }
+  };
+
+  // Array to store restaurant data with distance and time
+  const data = [];
+
+  // Loop through each restaurant and calculate distance and time
+  for (const restaurant of rows) {
+    const result = await calculateDistanceAndTime(
+      latitude,
+      longitude,
+      restaurant.restaurant_lat,
+      restaurant.restaurant_lng
+    );
+
+    if (result && result.distance <= radius) {
+      const cookingTime = restaurant.cooking_time || 0; // Default cooking time to 0 if null
+      const bufferTime = 10; // Add 10 minutes as a buffer
+
+      // Calculate total delivery time: cooking time + delivery time + buffer time
+      const totalDeliveryTime = 
+        Number(cookingTime) + Number(result.time) + Number(bufferTime);
+
+      data.push({
+        restaurant_id: restaurant.restaurant_id,
+        restaurant_name: restaurant.restaurant_name,
+        distance: result.distance,
+        avg_rating: parseFloat(restaurant.avg_rating).toFixed(1),
+        delivery_time: `${totalDeliveryTime} mins`, // Total time to reach the user
+        categories: restaurant.categories ? restaurant.categories.split(',') : [],
+      });
+    }
+  }
+
+  if (data.length === 0) {
+    return next(new AppError(404, "No restaurants found within 10 km"));
+  }
+
+  // Send the response
+  res.status(200).json({
+    status: "Success",
+    data,
+  });
 });
 
+
+
+
+
 exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
-  const { latitude, longitude } = req.params;
+  const { latitude, longitude } = req.params; // User's location
   const radius = 10; // Radius in kilometers
-  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
-  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
-  const bufferTime = 5; // Buffer time in minutes for range
 
-  // Haversine formula to calculate distance
-  const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
-
-  // Query to get restaurants within the radius of the user's location with ratings above 4.0
+  // Query to fetch top-rated restaurants based on user_rated_restaurants table
   const query = `
   SELECT 
-    restaurants.id AS restaurant_id, 
-    restaurants.restaurant_name, 
-    ${haversine} AS distance, 
-    COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
-    GROUP_CONCAT(DISTINCT categories.category) AS categories
-  FROM 
-    restaurants
-  INNER JOIN 
-    restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
-  LEFT JOIN 
-    restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
-  LEFT JOIN 
-    menus ON menus.restaurant_id = restaurants.id
-  LEFT JOIN 
-    categories ON categories.menu_id = menus.id
-  WHERE 
-    restaurants.approved = true AND ${haversine} <= ?
-  GROUP BY 
-    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
-  HAVING 
-    COALESCE(AVG(restaurants_rating.rating), 0) > 4.0
-  ORDER BY 
-    avg_rating DESC;
+  restaurants.id AS restaurant_id,
+  restaurants.restaurant_name,
+  restaurantaddress.latitude AS restaurant_lat,
+  restaurantaddress.longitude AS restaurant_lng,
+  COALESCE(AVG(user_rated_restaurants.rating), 0) AS avg_rating,
+  GROUP_CONCAT(DISTINCT categories.category) AS categories,
+  restaurants_working.cooking_time AS cooking_time
+FROM 
+  restaurants
+INNER JOIN 
+  restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+INNER JOIN 
+  restaurants_working ON restaurants_working.restaurant_id = restaurants.id
+LEFT JOIN 
+  user_rated_restaurants ON user_rated_restaurants.restaurant_id = restaurants.id -- Join user_rated_restaurants
+LEFT JOIN 
+  menus ON menus.restaurant_id = restaurants.id
+LEFT JOIN 
+  categories ON categories.menu_id = menus.id
+WHERE 
+  restaurants.approved = true
+GROUP BY 
+  restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude, restaurants_working.cooking_time
+ORDER BY 
+  avg_rating DESC;
 `;
 
-  const [rows, fields] = await pool.query(query, [radius]);
-
-  if (rows.length > 0) {
-    const data = rows.map((row) => {
-      const travelTime = row.distance / averageSpeed; // Calculate travel time
-      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
-      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-    
-      return {
-        restaurant_id: row.restaurant_id,
-        restaurant_name: row.restaurant_name,
-        distance: row.distance,
-        avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`,
-        categories: row.categories ? row.categories.split(',') : [], // Convert categories string to array
-      };
-    });
-    
-    res.status(200).json({
-      status: "Success",
-      data,
-    });
-    
-  } else {
+  // Execute the SQL query
+  const [rows] = await pool.query(query);
+  // Check if any restaurants were found
+  if (rows.length === 0) {
     return next(
       new AppError(
         404,
@@ -620,74 +643,197 @@ exports.getAllTopRatedRestaurants = asyncChoke(async (req, res, next) => {
       )
     );
   }
+
+  // Function to calculate distance and time using OpenRouteService API
+  const calculateDistanceAndTime = async (userLat, userLon, restLat, restLon) => {
+    const API_KEY = process.env.OPEN_ROUTE_SERVICE_API_KEY;
+    const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${API_KEY}&start=${userLon},${userLat}&end=${restLon},${restLat}`;
+    try {
+      const response = await axios.get(url);
+      const segment = response.data.features[0].properties.segments[0];
+      const distanceInKilometers = segment.distance / 1000; // Convert meters to kilometers
+      const timeInMinutes = segment.duration / 60; // Convert seconds to minutes
+
+      return {
+        distance: distanceInKilometers.toFixed(2),
+        time: Math.ceil(timeInMinutes),
+      };
+    } catch (err) {
+      console.error("Error fetching distance and time:", err.message);
+      return null;
+    }
+  };
+
+  // Array to store restaurant data with distance and time
+  const data = [];
+
+  // Loop through each restaurant and calculate distance and time
+  for (const restaurant of rows) {
+    const result = await calculateDistanceAndTime(
+      latitude,
+      longitude,
+      restaurant.restaurant_lat,
+      restaurant.restaurant_lng
+    );
+
+    if (result && result.distance <= radius) {
+      const cookingTime = restaurant.cooking_time || 0; // Default cooking time to 0 if null
+      const bufferTime = 10; // Add 10 minutes as a buffer
+
+      // Calculate total delivery time: cooking time + delivery time + buffer time
+      const totalDeliveryTime =
+        Number(cookingTime) + Number(result.time) + Number(bufferTime);
+
+      data.push({
+        restaurant_id: restaurant.restaurant_id,
+        restaurant_name: restaurant.restaurant_name,
+        distance: result.distance,
+        avg_rating: parseFloat(restaurant.avg_rating).toFixed(1),
+        delivery_time: `${totalDeliveryTime} mins`, // Total time to reach the user
+        categories: restaurant.categories ? restaurant.categories.split(",") : [],
+      });
+    }
+  }
+
+  // If no restaurants are found within the radius
+  if (data.length === 0) {
+    return next(
+      new AppError(
+        404,
+        "No top-rated restaurants found within 10 km radius"
+      )
+    );
+  }
+
+  // Send the response
+  res.status(200).json({
+    status: "Success",
+    data,
+  });
 });
 
+
+
 exports.getAllPopularRestaurants = asyncChoke(async (req, res, next) => {
-  const { latitude, longitude } = req.params;
+  const { latitude, longitude } = req.params; // User's location
   const radius = 10; // Radius in kilometers
-  const cookingPackingTime = 10; // Fixed 10 minutes for cooking and packing
-  const averageSpeed = 0.5; // 30 km/h = 0.5 km/min
-  const bufferTime = 5; // Buffer time in minutes for range
 
-  // Haversine formula to calculate distance
-  const haversine = `(6371 * acos(cos(radians(${latitude})) * cos(radians(restaurantaddress.latitude)) * cos(radians(restaurantaddress.longitude) - radians(${longitude})) + sin(radians(${latitude})) * sin(radians(restaurantaddress.latitude))))`;
-
-  // Query to get restaurants within the radius of the user's location, ordered by order_count descending
+  // Query to fetch popular restaurants based on order_count
   const query = `
   SELECT 
-    restaurants.id AS restaurant_id, 
-    restaurants.restaurant_name, 
-    ${haversine} AS distance, 
-    COALESCE(AVG(restaurants_rating.rating), 0) AS avg_rating,
-    restaurants.order_count,
-    GROUP_CONCAT(DISTINCT categories.category) AS categories
+    restaurants.id AS restaurant_id,
+    restaurants.restaurant_name,
+    restaurantaddress.latitude AS restaurant_lat,
+    restaurantaddress.longitude AS restaurant_lng,
+    COALESCE(AVG(user_rated_restaurants.rating), 0) AS avg_rating,
+    GROUP_CONCAT(DISTINCT categories.category) AS categories,
+    restaurants_working.cooking_time AS cooking_time,
+    restaurants.order_count
   FROM 
     restaurants
   INNER JOIN 
     restaurantaddress ON restaurants.id = restaurantaddress.restaurant_id
+  INNER JOIN 
+    restaurants_working ON restaurants_working.restaurant_id = restaurants.id
   LEFT JOIN 
-    restaurants_rating ON restaurants.id = restaurants_rating.restaurant_id
+    user_rated_restaurants ON user_rated_restaurants.restaurant_id = restaurants.id
   LEFT JOIN 
     menus ON menus.restaurant_id = restaurants.id
   LEFT JOIN 
     categories ON categories.menu_id = menus.id
   WHERE 
-    restaurants.approved = true AND ${haversine} <= ?
+    restaurants.approved = true
   GROUP BY 
-    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude
+    restaurants.id, restaurants.restaurant_name, restaurantaddress.latitude, restaurantaddress.longitude, restaurants_working.cooking_time
   ORDER BY 
-    restaurants.order_count DESC, avg_rating DESC;
-`;
+    restaurants.order_count DESC;  -- Order by order_count in descending order
+  `;
 
+  // Execute the SQL query
+  const [rows] = await pool.query(query);
 
-  const [rows, fields] = await pool.query(query, [radius]);
-
-  if (rows.length > 0) {
-    const data = rows.map((row) => {
-      const travelTime = row.distance / averageSpeed; // Calculate travel time
-      const minTime = travelTime - bufferTime + cookingPackingTime; // Minimum time
-      const maxTime = travelTime + bufferTime + cookingPackingTime; // Maximum time
-    
-      return {
-        restaurant_id: row.restaurant_id,
-        restaurant_name: row.restaurant_name,
-        distance: row.distance,
-        avg_rating: parseFloat(row.avg_rating).toFixed(1),
-        order_count: row.order_count,
-        delivery_time: `${Math.max(0, Math.floor(minTime))} - ${Math.ceil(maxTime)} min`,
-        categories: row.categories ? row.categories.split(',') : [], // Convert categories string to array
-      };
-    });
-    
-    res.status(200).json({
-      status: "Success",
-      data,
-    });
-    
-  } else {
-    return next(new AppError(404, "Restaurants not found in your location"));
+  // Check if any restaurants were found
+  if (rows.length === 0) {
+    return next(
+      new AppError(
+        404,
+        "No popular restaurants found based on orders in your location"
+      )
+    );
   }
+
+  // Function to calculate distance and time using OpenRouteService API
+  const calculateDistanceAndTime = async (userLat, userLon, restLat, restLon) => {
+    const API_KEY = process.env.OPEN_ROUTE_SERVICE_API_KEY;
+    const url = `https://api.openrouteservice.org/v2/directions/driving-car?api_key=${API_KEY}&start=${userLon},${userLat}&end=${restLon},${restLat}`;
+    try {
+      const response = await axios.get(url);
+      const segment = response.data.features[0].properties.segments[0];
+      const distanceInKilometers = segment.distance / 1000; // Convert meters to kilometers
+      const timeInMinutes = segment.duration / 60; // Convert seconds to minutes
+
+      return {
+        distance: distanceInKilometers.toFixed(2),
+        time: Math.ceil(timeInMinutes),
+      };
+    } catch (err) {
+      console.error("Error fetching distance and time:", err.message);
+      return null;
+    }
+  };
+
+  // Array to store restaurant data with distance and time
+  const data = [];
+
+  // Loop through each restaurant and calculate distance and time
+  for (const restaurant of rows) {
+    const result = await calculateDistanceAndTime(
+      latitude,
+      longitude,
+      restaurant.restaurant_lat,
+      restaurant.restaurant_lng
+    );
+
+    if (result && result.distance <= radius) {
+      const cookingTime = restaurant.cooking_time || 0; // Default cooking time to 0 if null
+      const bufferTime = 10; // Add 10 minutes as a buffer
+
+      // Calculate total delivery time: cooking time + delivery time + buffer time
+      const totalDeliveryTime =
+        Number(cookingTime) + Number(result.time) + Number(bufferTime);
+
+      data.push({
+        restaurant_id: restaurant.restaurant_id,
+        restaurant_name: restaurant.restaurant_name,
+        distance: result.distance,
+        avg_rating: parseFloat(restaurant.avg_rating).toFixed(1),
+        order_count: restaurant.order_count,  // Order count for popularity
+        delivery_time: `${totalDeliveryTime} mins`, // Total time to reach the user
+        categories: restaurant.categories ? restaurant.categories.split(",") : [],
+      });
+    }
+  }
+
+  // If no restaurants are found within the radius
+  if (data.length === 0) {
+    return next(
+      new AppError(
+        404,
+        "No popular restaurants found within 10 km radius"
+      )
+    );
+  }
+
+  // Send the response
+  res.status(200).json({
+    status: "Success",
+    data,
+  });
 });
+
+
+
+
 
 exports.getAllRestaurantsBySearch = asyncChoke(async (req, res, next) => {
   const { latitude, longitude, search } = req.query;
@@ -739,7 +885,7 @@ exports.getAllRestaurantsBySearch = asyncChoke(async (req, res, next) => {
   // Use `%search%` for pattern matching and also pass `search` for SOUNDEX
   const searchPattern = `%${search}%`;
 
-  const [rows, fields] = await pool.query(query, [
+  const [rows] = await pool.query(query, [
     radius,
     searchPattern,
     searchPattern,
@@ -1027,7 +1173,9 @@ exports.sellerLogin = asyncChoke(async (req, res, next) => {
 
     if (otpResult[0].otp_matched === 1) {
       const token = createSendToken(res, req, phone_no, role);
-      return res.status(200).json({ message: "Login success", token });
+      const approved = checkQuery[0].approved;
+      console.log(approved);
+      return res.status(200).json({ message: "Login success", token, approved : approved});
     } else {
       return next(new AppError(401, "Invalid OTP"));
     }

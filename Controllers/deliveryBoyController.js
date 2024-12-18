@@ -1,6 +1,7 @@
 const {pool} = require('../Config/database');
 const { asyncChoke } = require('../Utils/asyncWrapper');
 const AppError = require("../Utils/error");
+const { getSocketIoServer } = require('../Utils/socketHandler');
 const { isValidPhoneNumber, createSendToken } = require('../Utils/utils');
 
 
@@ -295,6 +296,7 @@ exports.deliveryOTPsender = asyncChoke(async (req, res, next) => {
     return next(new AppError(400, "Fill all fieldss"));
   }
 
+
  
   if(!isValidPhoneNumber(phone_no)){
     return next(new AppError(400, "Please Provide 10 digits mobile number"));
@@ -424,13 +426,181 @@ exports.deliveryLogin = asyncChoke(async (req, res, next) => {
 
 
 
-// exports.acceptOrder = asyncChoke(async(req, res, next)=>{
-//   const {order_id} = req.query;
-//   const {id:delivery_boy_id} = req.user;
-//   try{
-//     const [order] = await pool.query(`SELECT * FROM `)
-//   }
-// })
+exports.acceptOrder = asyncChoke(async(req, res, next)=>{
+  const {order_id} = req.query;
+  const {id:delivery_boy_id} = req.user;
+  try{
+    if(!order_id){
+      return next(new AppError(400, 'Order id required'))
+    }
+
+    const [order] = await pool.query(`SELECT * FROM orders WHERE id = ?`,[order_id]);
+    if(order.length === 0){
+      return next(new AppError(404, 'Order not found'))
+    }
+   
+    if(order[0].del_id){
+      return next(new AppError(400, 'Order already accepted by another delivery boy'))
+    }
+    const [updateOrder] = await pool.query(
+      `UPDATE orders SET del_id = ? WHERE id = ?;`,
+      [delivery_boy_id, order_id]
+    );
+
+    if(updateOrder.affectedRows === 1){
+      const [updatedOrder] = await pool.query(`
+        SELECT o.id AS order_id,
+        o.user_id,
+        o.restaurant_id,
+        o.del_amount,
+        o.created_at,
+        o.del_id,
+        d.phone_no AS del_phone_no
+        FROM orders o 
+        JOIN delivery_boys d ON d.id = o.del_id
+        WHERE o.id = ?`, [order_id]);
+      const dataTosend = {
+        order_details: updatedOrder[0]
+      }
+      const io = getSocketIoServer();
+
+      const restaurantSocket = io.connectedRestaurants[order[0].restaurant_id];
+      if(restaurantSocket){
+        io.to(restaurantSocket).emit('orderAcceptedDelivery', dataTosend);
+      }
+      const userSocket = io.connectedUsers[order[0].user_id];
+      if(userSocket){
+        io.to(userSocket).emit('orderAcceptedDelivery', dataTosend);
+      }
+      return res.status(200).json({status:"accepted",message: 'Order accepted successfully'});
+    }else{
+      return next(new AppError(500, 'Failed to accept order'))
+    }
+  }
+  catch(err){
+    console.log(err);
+    return next(new AppError(500, 'Server Error', err))
+  }
+});
+
+
+
+exports.confirmOrder = asyncChoke(async(req, res, next)=>{
+  const {order_id} = req.query;
+  const {id:delivery_boy_id} = req.user;
+  try{
+    if(!order_id){
+      return next(new AppError(400, 'Order id required'))
+    }
+    const [order] = await pool.query(`SELECT * FROM orders WHERE id = ?`,[order_id]);
+    if(order.length === 0){
+      return next(new AppError(404, 'Order not found'));
+    }
+    console.log(order[0]);
+    if(!order[0].del_id || order[0].del_id!== delivery_boy_id){
+      return next(new AppError(401, 'Unauthorized'))
+    }
+    if(order[0].order_status === 'on thy way'){
+      return next(new AppError(400, 'Order already confirmed'))
+    }
+    await pool.query(
+      `UPDATE orders SET order_status = 'on the way' WHERE id = ?;`,
+      [order_id]
+    );
+    const io = getSocketIoServer();
+    const restaurantSocket = io.connectedRestaurants[order[0].restaurant_id]
+    if(restaurantSocket){
+      io.to(restaurantSocket).emit('orderAcceptedDelivery', {status:"Order picked by delivery boy", order_id})
+    }
+    const userSocket = io.connectedUsers[order[0].user_id]
+    if(userSocket){
+      io.to(userSocket).emit('orderStatus', {status:"On the way", order_id})
+    }
+    return res.status(200).json({status:"on the way", message: 'Order confirmed successfully'});
+}
+  catch(err){
+    console.log(err);
+    return next(new AppError(500, 'Server Error', err));
+  }
+}
+);
+
+
+exports.arrivedOrder = asyncChoke(async(req, res, next)=>{
+  const {order_id} = req.query;
+  const {id:delivery_boy_id} = req.user;
+  try{
+    if(!order_id){
+      return next(new AppError(400, 'Order id required'))
+    }
+    const [order] = await pool.query(`SELECT * FROM orders WHERE id = ?`,[order_id]);
+    if(order.length === 0){
+      return next(new AppError(404, 'Order not found'));
+    }
+    console.log(order[0]);
+    if(!order[0].del_id || order[0].del_id!== delivery_boy_id){
+      return next(new AppError(401, 'Unauthorized'))
+    }
+    if(order[0].order_status === 'arrived'){
+      return next(new AppError(400, 'Order already arrived'))
+    }
+    await pool.query(
+      `UPDATE orders SET order_status = ? WHERE id = ?;`,
+      ['arrived', order_id]
+    );
+    const io = getSocketIoServer();
+    const userSocket = io.connectedUsers[order[0].user_id]
+    if(userSocket){
+      io.to(userSocket).emit('orderStatus', {status:"arrived", order_id})
+    }
+    return res.status(200).json({status:"arrived", message: 'Order arrived successfully'});
+}
+  catch(err){
+    console.log(err);
+    return next(new AppError(500, 'Server Error', err));
+  }
+}
+);
+
+
+
+exports.deliverOrder = asyncChoke(async(req, res, next)=>{
+  const {order_id} = req.query;
+  const {id:delivery_boy_id} = req.user;
+  try{
+    if(!order_id){
+      return next(new AppError(400, 'Order id required'))
+    }
+    const [order] = await pool.query(`SELECT * FROM orders WHERE id = ?`,[order_id]);
+    if(order.length === 0){
+      return next(new AppError(404, 'Order not found'));
+    }
+    console.log(order[0]);
+    if(!order[0].del_id || order[0].del_id!== delivery_boy_id){
+      return next(new AppError(401, 'Unauthorized'))
+    }
+    if(order[0].order_status === 'delivered'){
+      return next(new AppError(400, 'Order already delivered'))
+    }
+    await pool.query(
+      `UPDATE orders SET order_status = ? WHERE id = ?;`,
+      ['delivered', order_id]
+    );
+    const io = getSocketIoServer();
+    const userSocket = io.connectedUsers[order[0].user_id]
+    if(userSocket){
+      io.to(userSocket).emit('orderStatus', {status:"delivered", order_id})
+    }
+    return res.status(200).json({status:"delivered", message: 'Order delivered successfully'});
+}
+  catch(err){
+    console.log(err);
+    return next(new AppError(500, 'Server Error', err));
+  }
+}
+);
+
+
 
 
 exports.goOnline = asyncChoke(async(req, res, next)=>{

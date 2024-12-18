@@ -4,6 +4,7 @@ const { asyncChoke } = require("../Utils/asyncWrapper");
 const AppError = require("../Utils/error");
 const { isValidPhoneNumber, convertExpiryDate, createSendToken } = require("../Utils/utils");
 const { verifyPaymentOrder } = require("../Utils/razorpay");
+const { emitOrderStatus, getSocketIoServer } = require("../Utils/socketHandler");
 
 // create or signup with otp
 
@@ -420,15 +421,230 @@ exports.editAddress = asyncChoke(async (req, res, next) => {
 
 exports.PurchaseVerify = asyncChoke(async(req, res, next) => {
   const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
-  await verifyPaymentOrder(razorpay_order_id, razorpay_payment_id, razorpay_signature);
-  console.log(verifyPaymentOrder);
-  if((verifyPaymentOrder.status === "captured") || !verifyPaymentOrder){
-    return res.redirect("http://localhost:5173/paymentSuccess");
+  console.log(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+  if(!razorpay_order_id || !razorpay_payment_id || !razorpay_signature){
+    return next(new AppError(400, "Missing payment credentials"));
+  }
+  const transaction = await verifyPaymentOrder(razorpay_order_id, razorpay_payment_id, razorpay_signature);
+  const notes = transaction.notes;
+  console.log(transaction,notes);
+  if((transaction.status === "captured") || !transaction){
+  
+// console.log(payment_type);
+  try {
+
+    // Fetch cart items from the database
+    const [cartItems] = await pool.query(`
+      SELECT 
+        ci.id AS cart_item_id, 
+        ci.item_id AS item_id, 
+        ci.quantity AS quantity, 
+        c.id AS cart_id, 
+        r.id AS restaurant_id,
+        i.customisation 
+      FROM users u
+      JOIN cart c ON u.id = c.user_id
+      JOIN cart_items ci ON c.id = ci.cart_id
+      JOIN items i ON ci.item_id = i.id
+      JOIN categories cat ON i.category_id = cat.id
+      JOIN menus m ON cat.menu_id = m.id
+      JOIN restaurants r ON m.restaurant_id = r.id
+      WHERE u.id = ?
+    `, [notes.user_id]);
+
+    // Make sure that the cartItems array is not empty before proceeding
+    if (!cartItems.length) {
+      return next(new AppError(400, "No items in the cart!"));
+    } 
+    const [billInsertion] = await pool.query(`INSERT INTO bills (item_total,delivery_fee,item_discount, delivery_tip, platform_fee,gst_and_restaurant_charges,total_bill, user_id, transaction_id, payment_type) VALUES(?,?,?,?,?,?,?,?,?,?)`,[notes.bill.item_total,notes.bill.delivery_fee, notes.bill.item_discount,notes.bill.delivery_tip, notes.bill.platform_fee, notes.bill.gst_and_restaurant_charges, notes.bill.total_bill, notes.user_id,notes.transaction_id, transaction.method])
+    // Insert order into the orders table
+    if(notes.offer_id){
+      const [useOffer] = await pool.query(`INSERT INTO user_used_offer (user_id, offer_id) VALUES(?,?)`,[notes.user_id, notes.offer_id]);
+    }
+    const [order] = await pool.query(`
+      INSERT INTO orders (user_id, restaurant_id, order_status, bill_id, res_amount, del_amount) 
+      VALUES (?, ?, ?,?,?,?)
+    `, [notes.user_id, cartItems[0].restaurant_id, "pending", billInsertion.insertId, notes.bill.item_total,notes.bill.delivery_fee]);
+
+    const [insertAddress] = await pool.query(`
+      INSERT INTO orderaddress
+      (state, city, area, house_no, lat, lon, type, R_name, R_phone_no, user_id, order_id)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?);
+      `,[notes.user_address.state,notes.user_address.city,notes.user_address.area,notes.user_address.house_no,notes.user_address.lat,notes.user_address.lon,notes.user_address.type,notes.user_address.R_name,notes.user_address.R_phone_no, notes.user_id, order.insertId]);
+
+
+    // Insert items into the order_items table
+    for (let i = 0; i < cartItems.length; i++) {
+      // Insert item into order_items
+      const [orderItem] = await pool.query(`
+        INSERT INTO order_items (order_id, item_id, quantity) 
+        VALUES (?, ?, ?)
+      `, [order.insertId, cartItems[i].item_id, cartItems[i].quantity]);
+
+      
+ 
+      // If the item has customizations, add them to the order_item_customizations table
+      if (cartItems[i].customisation) {
+        const [customization] = await pool.query(`
+          SELECT * FROM cart_item_customizations 
+          WHERE cart_item_id = ?
+        `, [cartItems[i].cart_item_id]);
+
+        if (customization.length > 0) {
+          for (const custom of customization) {
+            // Insert each customization into the order_item_customisation table
+            await pool.query(`
+              INSERT INTO order_item_customisation (order_items_id, title_id, option_id) 
+              VALUES (?, ?, ?)
+            `, [orderItem.insertId, custom.title_id, custom.option_id]);
+          }
+        }
+      }
+    }
+
+    const io = getSocketIoServer();
+    const restaurantSocket = io.connectedRestaurants[cartItems[0].restaurant_id];
+    console.log("restaurant socket",restaurantSocket);
+    if (restaurantSocket) {
+     
+        const restaurant_id = cartItems[0].restaurant_id;
+        const order_id = order.insertId;
+      
+        // Fetch the user's order
+        const [orders] = await pool.query(`
+          SELECT
+              o.id, 
+              o.res_amount, 
+              o.created_at,
+              o.user_id, 
+              o.restaurant_id, 
+              o.bill_id,
+              o.order_status,
+              oa.area AS user_area,
+              oa.house_no AS user_house_no,
+              oa.city AS user_city,
+              oa.lat AS user_latitude,
+              oa.lon AS user_longitude,
+              ra.street AS restaurant_street,
+              ra.area AS restaurant_area,
+              ra.city AS restaurant_city,
+              ra.latitude AS restaurant_latitude,
+              ra.longitude AS restaurant_longitude,
+              b.payment_type
+          FROM orders o
+          JOIN orderaddress oa ON oa.order_id = o.id
+          JOIN restaurantaddress ra ON ra.restaurant_id = o.restaurant_id
+          JOIN bills b ON b.id = o.bill_id
+          WHERE o.restaurant_id = ? AND o.id = ?`, [restaurant_id, order_id]);
+      
+        if (orders.length === 0) {
+          return next(new AppError(404, "Order not found or does not belong to this restaurant"));
+        }
+      
+        // Fetch order items
+        const fetchOrderItemsQuery = `
+          SELECT 
+              oi.order_id,
+              o.created_at,
+              oi.id as order_item_id, 
+              oi.item_id,
+              oi.quantity, 
+              i.name as item_name, 
+              i.price as item_price
+          FROM order_items oi
+          JOIN orders o ON oi.order_id = o.id
+          JOIN items i ON oi.item_id = i.id
+          WHERE oi.order_id = ?
+        `;
+        const [orderItems] = await pool.query(fetchOrderItemsQuery, [order_id]);
+      
+        if (orderItems.length === 0) {
+          return res.status(200).json({
+            status: 'success',
+            data: {
+              order_details: orders[0],  // Include the order details in the response
+              items: []
+            }
+          });
+        }
+      
+        // Fetch and attach customizations for each order item
+        const fetchCustomizationsQuery = `
+          SELECT
+              oic.order_items_id,
+              oic.title_id,
+              ct.title,
+              oic.option_id,
+              co.option_name,
+              co.additional_price,
+              ct.selection_type
+          FROM order_item_customisation oic
+          JOIN customisation_title ct ON oic.title_id = ct.id
+          JOIN customisation_options co ON oic.option_id = co.id
+          WHERE oic.order_items_id IN (?)
+        `;
+        const orderItemIds = orderItems.map(item => item.order_item_id);
+        const [customizations] = await pool.query(fetchCustomizationsQuery, [orderItemIds]);
+      
+        // Structure customizations for easier access
+        const customizationsByOrderItem = {};
+        customizations.forEach(customization => {
+          const { order_items_id, title, option_id, option_name, additional_price, selection_type, title_id } = customization;
+      
+          if (!customizationsByOrderItem[order_items_id]) {
+            customizationsByOrderItem[order_items_id] = {};
+          }
+      
+          if (!customizationsByOrderItem[order_items_id][title]) {
+            customizationsByOrderItem[order_items_id][title] = {
+              selection_type,
+              title,
+              title_id,
+              options: []
+            };
+          }
+      
+          customizationsByOrderItem[order_items_id][title].options.push({
+            option_id,
+            option_name,
+            additional_price
+          });
+        });
+      
+        // Attach customizations to order items
+        const resultItems = orderItems.map(item => ({
+          ...item,
+          customizations: customizationsByOrderItem[item.order_item_id] || {}
+        }));
+      
+        
+        
+     const data =  {
+      order_details: orders[0],  // Include order details as the first part
+      items: resultItems          // Include items with their customizations
+    }
+      io.to(restaurantSocket).emit('newOrder', data);
+    }
+    // return res.redirect("http://localhost:5173/paymentSuccess");
+    // // Return the success response
+    return res.status(200).json({
+      status: "success",
+      message:"Order initiated successfully",
+      data: {
+        cartItems: cartItems,
+        bill: notes.bill,
+      }
+    });
+    
+  } catch (error) {
+    console.log(error);
+    return next(new AppError(500, "Internal Server Error", error));
+  }
   }
   else{
-    return res.redirect("http://localhost:5173/paymentFailed");
+    return next(new AppError(417, "Payment Failed"));
   }
-})
+});
 
 
 
@@ -501,6 +717,33 @@ exports.addUPI = async (req, res, next) => {
         return next(new AppError(500, 'Internal Server Error', error));
     }
 };
+
+
+exports.fetchPayments = asyncChoke(async(req, res, next)=>{
+  const user_id = req.user.id;
+  try {
+    // Fetch all payments made by the user
+    const [UPIs] = await pool.query(
+      `SELECT * FROM upi_details WHERE user_id = ?`,
+      [user_id]
+    );
+    const [cards] = await pool.query(
+      `SELECT * FROM cards WHERE user_id = ?`,
+      [user_id]
+    );
+    const paymentData = {
+      UPIs : UPIs,
+      cards : cards
+    }
+    res.status(200).json({
+      status:'success',
+      data: paymentData
+    });
+}
+  catch (error) {
+    console.error(error);
+    return next(new AppError(500, 'Internal Server Error', error));
+  }});
 
 
 exports.rateItems = asyncChoke(async (req, res, next) => {

@@ -23,9 +23,12 @@ router.get('/getUserAddresses', userAuth.protect , userController.getAddedAddres
 router.delete('/deleteAddress/:address_id', userAuth.protect, userController.removeAddress);
 router.patch('/editAddress/:address_id',userAuth.protect,userController.editAddress);
 router.post('/orderPayment',userAuth.protect, initaiteWalletRefill);
+router.post('/verifyPayment', userController.PurchaseVerify);
 router.post('/addCard',userAuth.protect, userController.addCard);
 router.post('/addUPI',userAuth.protect, userController.addUPI);
+router.get('/fetchPayments', userAuth.protect, userController.fetchPayments);
 router.post('/rateItem',userAuth.protect, userController.rateItems);
 router.post('/rateRestaurant',userAuth.protect, userController.rateRestaurant);
+
 module.exports = router;
 

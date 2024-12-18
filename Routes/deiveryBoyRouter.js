@@ -1,5 +1,5 @@
 const express = require('express');
-const { getDocumentStatus, deliveryBoyOTPsender, deliveryBoyLogin, createDeleveryBoy, getAllApprovedDeliveryBoys, getApprovedDeliveryBoyById, updateApprovedDeliveryBoy, deleteApprovedDeliveryBoy, deliveryOTPsender, deliveryLogin, updateDeliveryPersonal, updateDeliveryDocs, updateWorkType, updateDeliveryVehicle, updateDeliveryBank, sendApprovalRequest } = require('../Controllers/deliveryBoyController');
+const { getDocumentStatus, deliveryBoyOTPsender, deliveryBoyLogin, createDeleveryBoy, getAllApprovedDeliveryBoys, getApprovedDeliveryBoyById, updateApprovedDeliveryBoy, deleteApprovedDeliveryBoy, deliveryOTPsender, deliveryLogin, updateDeliveryPersonal, updateDeliveryDocs, updateWorkType, updateDeliveryVehicle, updateDeliveryBank, sendApprovalRequest, acceptOrder, confirmOrder, arrivedOrder, deliverOrder } = require('../Controllers/deliveryBoyController');
 const { protect } = require('../Controllers/deliveryAuth');
 
 const router = express.Router();
@@ -13,6 +13,10 @@ router.patch('/workUpdate',protect, updateWorkType);
 router.patch('/vehicleUpdate', protect,updateDeliveryVehicle);
 router.patch('/bankUpdate',protect, updateDeliveryBank);
 router.patch('/sendForApproval', protect, sendApprovalRequest);
+router.patch('/acceptOrder', protect, acceptOrder);
+router.patch('/confirmOrder', protect, confirmOrder);
+router.patch('/arrivedOrder', protect, arrivedOrder);
+router.patch('/deliverOrder', protect, deliverOrder);
 
 router.post('/', createDeleveryBoy);
 router.get('/', getAllApprovedDeliveryBoys);
