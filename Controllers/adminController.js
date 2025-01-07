@@ -1,11 +1,206 @@
 const { pool } = require("../Config/database");
 const AppError = require("../Utils/error");
 const { asyncChoke } = require("../Utils/asyncWrapper");
+const { createSendToken, validateEmail, calculateGrowthRate } = require("../Utils/utils");
+
+
+exports.adminLogin = asyncChoke(async (req, res, next) => {
+  const { email, password } = req.body;
+
+  // Validate email and password
+  if (!email || !password) {
+    return next(new AppError(400, "Email and password are required"));
+  }
+
+  if (!validateEmail(email)) {
+    return next(new AppError(400, "Please enter a valid email"));
+  }
+
+  // Query to find admin by email
+  const query = `
+    SELECT * 
+    FROM admin 
+    WHERE email = ?
+  `;
+
+  const [admins] = await pool.query(query, [email]);
+
+  // Check if admin exists
+  if (admins.length === 0) {
+    return next(new AppError(401, "Invalid email or password"));
+  }
+
+  const admin = admins[0];
+
+  // Validate the password (plain comparison)
+  if (admin.password !== password) {
+    return next(new AppError(401, "Invalid email or password"));
+  }
+
+  // Generate token using the helper function
+  const token = createSendToken(res, req, admin.email, "admin");
+
+  // Send response with token
+  res.status(200).json({
+    status: "Success",
+    token,
+    data: {
+      id: admin.id,
+      name: admin.name,
+      email: admin.email,
+    },
+  });
+});
+
+exports.getAdminDashboard = asyncChoke(async (req, res, next) => {
+  try {
+    // Get current month data
+    const [totalRevenueResult] = await pool.query(
+      `SELECT SUM(platform_amount) AS total_revenue FROM orders WHERE MONTH(created_at) = MONTH(CURDATE()) AND YEAR(created_at) = YEAR(CURDATE())`
+    );
+    const totalRevenue = totalRevenueResult[0].total_revenue || 0;
+
+    const [todayEarningsResult] = await pool.query(
+      `SELECT SUM(platform_amount) AS today_earnings FROM orders WHERE DATE(created_at) = CURDATE()`
+    );
+    const todayEarnings = todayEarningsResult[0].today_earnings || 0;
+
+    const [completedOrdersResult] = await pool.query(
+      `SELECT COUNT(*) AS completed_orders FROM orders WHERE order_status = 'arrived'`
+    );
+    const completedOrders = completedOrdersResult[0].completed_orders || 0;
+
+    const [activeOrdersResult] = await pool.query(
+      `SELECT COUNT(*) AS active_orders FROM orders WHERE order_status NOT IN ('arrived', 'cancelled', 'pending')`
+    );
+    const activeOrders = activeOrdersResult[0].active_orders || 0;
+
+    // Get previous month's data
+    const [previousTotalRevenueResult] = await pool.query(
+      `SELECT SUM(platform_amount) AS total_revenue FROM orders WHERE MONTH(created_at) = MONTH(CURDATE()) - 1 AND YEAR(created_at) = YEAR(CURDATE())`
+    );
+    const previousTotalRevenue = previousTotalRevenueResult[0].total_revenue || 0;
+
+    const [previousTodayEarningsResult] = await pool.query(
+      `SELECT SUM(platform_amount) AS today_earnings FROM orders WHERE DATE(created_at) = CURDATE() - INTERVAL 1 DAY`
+    );
+    const previousTodayEarnings = previousTodayEarningsResult[0].today_earnings || 0;
+
+    const [previousCompletedOrdersResult] = await pool.query(
+      `SELECT COUNT(*) AS completed_orders FROM orders WHERE order_status = 'arrived' AND MONTH(created_at) = MONTH(CURDATE()) - 1 AND YEAR(created_at) = YEAR(CURDATE())`
+    );
+    const previousCompletedOrders = previousCompletedOrdersResult[0].completed_orders || 0;
+
+    const [previousActiveOrdersResult] = await pool.query(
+      `SELECT COUNT(*) AS active_orders FROM orders WHERE order_status NOT IN ('arrived', 'cancelled', 'pending') AND MONTH(created_at) = MONTH(CURDATE()) - 1 AND YEAR(created_at) = YEAR(CURDATE())`
+    );
+    const previousActiveOrders = previousActiveOrdersResult[0].active_orders || 0;
+
+    // Calculate Growth Rates
+    const totalRevenueGrowth = calculateGrowthRate(totalRevenue, previousTotalRevenue);
+    const todayEarningsGrowth = calculateGrowthRate(todayEarnings, previousTodayEarnings);
+    const completedOrdersGrowth = calculateGrowthRate(completedOrders, previousCompletedOrders);
+    const activeOrdersGrowth = calculateGrowthRate(activeOrders, previousActiveOrders);
+
+    // Top 5 Restaurants by Order Count
+    const [topRestaurantsResult] = await pool.query(
+      `SELECT r.id AS restaurant_id, r.restaurant_name, r.owner_name, r.owner_email, r.owner_phone_no, r.order_count 
+       FROM restaurants r
+       ORDER BY r.order_count DESC
+       LIMIT 5`
+    );
+
+    // Get Address Details and Order Count for Top 5 Restaurants
+    const restaurantIds = topRestaurantsResult.map(r => r.restaurant_id);
+    const [addressDetailsResult] = await pool.query(
+      `SELECT ra.restaurant_id, ra.street, ra.landmark, ra.area, ra.pincode, ra.city, ra.state, ra.latitude, ra.longitude, r.order_count
+       FROM restaurantaddress ra
+       JOIN restaurants r ON ra.restaurant_id = r.id
+       WHERE ra.restaurant_id IN (?)`,
+      [restaurantIds]
+    );
+
+    // Respond with dashboard data
+    res.status(200).json({
+      status: "Success",
+      data: {
+        totalRevenue,
+        totalRevenueGrowth: `${totalRevenueGrowth}%`,
+        todayEarnings,
+        todayEarningsGrowth: `${todayEarningsGrowth}%`,
+        completedOrders,
+        completedOrdersGrowth: `${completedOrdersGrowth}%`,
+        activeOrders,
+        activeOrdersGrowth: `${activeOrdersGrowth}%`,
+        topRestaurants: topRestaurantsResult,
+        topLocations: addressDetailsResult,
+      },
+    });
+  } catch (error) {
+    return next(new AppError(500, "Failed to fetch dashboard data"));
+  }
+});
+
+
+
+exports.updateAppSettings = asyncChoke(async (req, res, next) => {
+  const {
+    circular_radius,
+    route_distance,
+    buffer_time,
+    per_km_fee,
+    platform_fee,
+    restaurant_charges_rate,
+  } = req.body;
+
+  try {
+    // Update all settings directly with a single query
+    const query = `
+      UPDATE app_settings 
+      SET 
+        circular_radius = ?, 
+        route_distance = ?, 
+        buffer_time = ?, 
+        per_km_fee = ?, 
+        platform_fee = ?, 
+        restaurant_charges_rate = ?
+      WHERE id = 1
+    `;
+
+    // Execute the query with provided values
+    const [result] = await pool.query(query, [
+      circular_radius,
+      route_distance,
+      buffer_time,
+      per_km_fee,
+      platform_fee,
+      restaurant_charges_rate,
+    ]);
+
+    if (result.affectedRows === 0) {
+      return next(new AppError(404, "Failed to update app settings."));
+    }
+
+    // Respond with success message
+    res.status(200).json({
+      status: "success",
+      message: "App settings updated successfully.",
+    });
+  } catch (error) {
+    console.error("Error updating app settings:", error);
+    return next(new AppError(500, "Failed to update app settings."));
+  }
+});
+
+
+
+
+
 
 exports.getRestaurantsAdmin = asyncChoke(async (req, res, next) => {
   const { approvalType } = req.query;
   try {
-    if (approvalType !== "pending" && approvalType !== "approved") {
+    if (approvalType !== "pending" && approvalType !== "approved" && approvalType !== "declined") {
       return next(
         new AppError(
           400,
@@ -13,12 +208,7 @@ exports.getRestaurantsAdmin = asyncChoke(async (req, res, next) => {
         )
       );
     }
-    let approval;
-    if (approvalType === "approved") {
-      approval = 1;
-    } else if (approvalType === "pending") {
-      approval = 0;
-    }
+    
     const qurey = `SELECT 
   -- Restaurant Information
   r.id AS restaurant_id,
@@ -26,12 +216,6 @@ exports.getRestaurantsAdmin = asyncChoke(async (req, res, next) => {
   r.owner_email,
   r.owner_phone_no,
   r.restaurant_name,
-  r.pan_no,
-  r.GSTIN_no,
-  r.FSSAI_no,
-  r.outlet_type,
-  r.bank_IFSC,
-  r.bank_account_no,
   r.approved,
   r.updated_at,
   
@@ -73,7 +257,7 @@ LEFT JOIN restaurant_docs rd ON rd.restaurant_id = r.id
 LEFT JOIN restaurants_working rw ON rw.restaurant_id = r.id
 WHERE approved = ?;
 `;
-    const [results] = await pool.query(qurey, [approval]);
+    const [results] = await pool.query(qurey, [approvalType]);
     const structuredData = results.map((row) => ({
       restaurant_info: {
         id: row.restaurant_id,
@@ -133,7 +317,6 @@ WHERE approved = ?;
       return next(new AppError(404, `No Restaurant Approvals Found!`));
     }
   } catch (error) {
-    // console.error('Error getting all unApproved restaurants:', error);
     res.status(500).json({
       status: "Error",
       message: "Internal server error",
@@ -257,7 +440,6 @@ JOIN delivery_work dw ON dw.del_id = db.id
 JOIN delivery_bank dbb ON dbb.del_id = db.id
 JOIN delivery_vehicles dv ON dv.del_id = db.id
 WHERE db.approved = ?
-
 `;
     const [results] = await pool.query(qurey, [approvalType]);
     const structuredData = results.map((row) => ({
@@ -358,7 +540,6 @@ exports.approveDeleveryBoys = asyncChoke(async (req, res, next) => {
 exports.createMainCategory = asyncChoke(async (req, res, next) => {
   const { name, image_url } = req.body;
 
-  // Validate input
   if (!name || !image_url) {
     return res.status(400).json({
       status: "Error",
@@ -387,7 +568,6 @@ exports.updateMainCategory = asyncChoke(async (req, res, next) => {
   const { id } = req.params;
   const { name, image_url } = req.body;
 
-  // Validate input
   if (!name && !image_url) {
     return res.status(400).json({
       status: "Error",
