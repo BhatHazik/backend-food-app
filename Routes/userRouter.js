@@ -1,0 +1,81 @@
+const express = require("express");
+const userController = require("../Controllers/userController");
+const userAuth = require("../Controllers/authController");
+const {
+  initaiteWalletRefill,
+  verifyPaymentOrder,
+  initiateReOrder,
+} = require("../Utils/razorpay");
+const upload = require("multer")();
+const router = express.Router();
+
+router.post("/verifyPayment", userController.PurchaseVerify);
+router.post("/createUser", userController.createUserOTP);
+router.post("/userSignUp/:phNO/:name/:email", userController.userSignUp);
+router.post("/userLogin/:phone_no", userController.userLogin);
+router.get("/readUsers", userController.readUsers);
+router.get("/getUserDetails", userAuth.protect, userController.getUserDetails);
+router.delete("/deleteUser", userAuth.protect, userController.deleteUser);
+router.post("/userSendOtp", userController.userOTPsender);
+router.post(
+  "/userEditProfileOTP",
+  userAuth.protect,
+  userController.updateUserOtpSender
+);
+router.patch(
+  "/editProfile/:name/:email/:phone_no",
+  userAuth.protect,
+  upload.fields([{ name: "profile", maxCount: 1 }]),
+  userController.updateUserProfile
+);
+router.patch(
+  "/editProfile/profile",
+  userAuth.protect,
+  upload.fields([{ name: "profile", maxCount: 1 }]),
+  userController.updateUserProfilePicture
+);
+router.patch(
+  "/editProfile/phone",
+  userAuth.protect,
+  userController.updateUserPhoneNumber
+);
+router.patch(
+  "/editProfile/email",
+  userAuth.protect,
+  userController.updateUserEmail
+);
+router.patch(
+  "/editProfile/name",
+  userAuth.protect,
+  userController.updateUserName
+);
+
+router.post("/addAddress", userAuth.protect, userController.addAddress);
+ router.patch("/selectAddress/:address_id", userAuth.protect, userController.selectAddress);
+router.get(
+  "/getUserAddresses",
+  userAuth.protect,
+  userController.getAddedAddress
+);
+router.delete(
+  "/deleteAddress/:address_id",
+  userAuth.protect,
+  userController.removeAddress
+);
+router.patch(
+  "/editAddress/:address_id",
+  userAuth.protect,
+  userController.editAddress
+);
+router.post("/orderPayment", userAuth.protect, initaiteWalletRefill);
+router.post("/reOrderPayment", userAuth.protect, initiateReOrder);
+router.post("/verifyPayment", userController.PurchaseVerify);
+router.post("/verifyReorder", userController.verifyReorder);
+router.post("/addCard", userAuth.protect, userController.addCard);
+router.post("/addUPI", userAuth.protect, userController.addUPI);
+router.get("/fetchPayments", userAuth.protect, userController.fetchPayments);
+router.post("/rateItem", userAuth.protect, userController.rateItems);
+router.get("/getItemRatings", userAuth.protect, userController.getOrderRatings);
+router.post("/rateRestaurant", userAuth.protect, userController.rateRestaurant);
+
+module.exports = router;
